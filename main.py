@@ -2,6 +2,10 @@ from fastapi import FastAPI
 from core.db import engine
 from fastapi.middleware.cors import CORSMiddleware
 from core.settings import settings
+from routers import auth as auth_router, families as families_router
+from routers import users as users_router
+from routers import memberships as memberships_router
+
 
 app = FastAPI(title=settings.APP_NAME)
 origins = settings.CORS_ORIGINS or []
@@ -12,6 +16,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(auth_router.router)
+app.include_router(families_router.router)
+app.include_router(users_router.router)
+app.include_router(memberships_router.router)
 
 @app.on_event("startup")
 def startup_event():

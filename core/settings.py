@@ -6,6 +6,10 @@ class Settings(BaseSettings):
     APP_NAME: str = "Freshly API"
     APP_ENV: str = "local"
     LOG_LEVEL: str = "INFO"
+    # add fields if missing
+    JWT_SECRET: str
+    JWT_ALG: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
 
     DATABASE_URL: str
 
