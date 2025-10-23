@@ -1,11 +1,11 @@
 # migrations/env.py
+from core.settings import settings
 from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 import os
 import sys
 from pathlib import Path
-from core.settings import settings
 
 
 # Ensure project root is on sys.path so imports like `core.db` and `models.*` work

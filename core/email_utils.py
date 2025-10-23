@@ -1,6 +1,6 @@
+from core.settings import settings
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 from pydantic import EmailStr
-from core.settings import settings
 import ssl, certifi
 
 tls_context = ssl.create_default_context(cafile=certifi.where())

@@ -1,9 +1,11 @@
+from core.settings import settings
 from fastapi import FastAPI
 from core.db import engine
 from fastapi.middleware.cors import CORSMiddleware
-from core.settings import settings
 from routers import auth as auth_router, families as families_router
 from routers import meals, storage, chat, meal_plans, pantry_items, user_preferences, memberships as memberships_router, users as users_router
+from dotenv import load_dotenv
+load_dotenv()
 
 
 app = FastAPI(title=settings.APP_NAME)
