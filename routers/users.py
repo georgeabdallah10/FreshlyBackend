@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.deps import get_current_user
 from models.user import User
-from schemas.user import UserOut
-from crud.users import update_user_name, delete_user
+from schemas.user import UserOut, UserUpdate
+from crud.users import update_user_info, delete_user
 from pydantic import BaseModel
 
 # Shared error schema for consistent error responses
@@ -13,10 +13,6 @@ class ErrorOut(BaseModel):
     detail: str
 
 router = APIRouter(prefix="/users", tags=["users"])
-
-class UserUpdate(BaseModel):
-    name: str | None = None
-
 
 @router.get(
     "/me",
@@ -41,9 +37,11 @@ def update_me(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Update the current user's name."""
-    if data.name is not None:
-        current_user = update_user_name(db, current_user, data.name)
+    """Update the current user's profile fields (name, email, phone_number)."""
+    # Only send changed, non-null fields to the CRUD layer
+    update_data = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None}
+    if update_data:
+        current_user = update_user_info(db, current_user, **update_data)
     return current_user
 
 

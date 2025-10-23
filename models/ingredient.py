@@ -1,6 +1,6 @@
 # models/ingredient.py
 from sqlalchemy import Integer, Text, DateTime, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from core.db import Base
 
 
@@ -13,6 +13,7 @@ class Ingredient(Base):
     created_at: Mapped["DateTime"] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    pantry_items = relationship("PantryItem", back_populates="ingredient")
 
     def __repr__(self) -> str:
         return f"<Ingredient id={self.id} name={self.name!r} category={self.category!r}>"

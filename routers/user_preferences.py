@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from core.db import get_db
 from core.deps import get_current_user
 from models.user import User
-from schemas.user_preference import UserPreferenceCreateUpdate, UserPreferenceOut
+from schemas.user_preference import UserPreferenceCreate, UserPreferenceOut  # <-- FIXED
 from crud.user_preferences import (
     get_user_preference,
     create_or_update_user_preference,
@@ -41,7 +41,7 @@ def get_my_preferences(
     status_code=status.HTTP_201_CREATED,
 )
 def set_my_preferences(
-    data: UserPreferenceCreateUpdate,
+    data: UserPreferenceCreate,  # <-- FIXED: use the defined schema
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

@@ -4,8 +4,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-from models.base import Base  # keep this, since your Family uses models.base.Base
-
+from core.db import Base
 
 class FamilyMembership(Base):
     __tablename__ = "family_memberships"

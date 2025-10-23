@@ -3,8 +3,7 @@ from core.db import engine
 from fastapi.middleware.cors import CORSMiddleware
 from core.settings import settings
 from routers import auth as auth_router, families as families_router
-from routers import users as users_router
-from routers import memberships as memberships_router
+from routers import meals, storage, chat, meal_plans, pantry_items, user_preferences, memberships as memberships_router, users as users_router
 
 
 app = FastAPI(title=settings.APP_NAME)
@@ -20,6 +19,14 @@ app.include_router(auth_router.router)
 app.include_router(families_router.router)
 app.include_router(users_router.router)
 app.include_router(memberships_router.router)
+app.include_router(user_preferences.router)
+app.include_router(pantry_items.router)
+app.include_router(meal_plans.router)
+app.include_router(chat.router)
+app.include_router(meals.router)
+app.include_router(storage.router)
+
+
 
 @app.on_event("startup")
 def startup_event():

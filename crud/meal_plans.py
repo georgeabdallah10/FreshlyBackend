@@ -3,15 +3,30 @@ from sqlalchemy.orm import Session
 from sqlalchemy import asc
 from models.meal_plan import MealPlan
 from datetime import date
+from models.user import User  # if you want a typed param
 
 
-def list_meal_plans(db: Session, *, family_id: int) -> list[MealPlan]:
-    return (
-        db.query(MealPlan)
-        .filter(MealPlan.family_id == family_id)
-        .order_by(asc(MealPlan.start_date))
-        .all()
-    )
+
+def list_meal_plans(
+    db: Session,
+    user: User | None = None,
+    created_by_user_id: int | None = None,
+):
+    query = db.query(MealPlan)
+
+    # Guard: avoid returning ALL meal plans accidentally
+    if created_by_user_id is None and user is None:
+        return []
+
+    if created_by_user_id is not None:
+        query = query.filter(MealPlan.created_by_user_id == created_by_user_id)
+    elif user is not None:
+        # family-scoped
+        family_ids = [m.family_id for m in user.memberships]
+        query = query.filter(MealPlan.family_id.in_(family_ids))
+
+    plans = query.all()
+    return plans or [] 
 
 
 def get_meal_plan(db: Session, plan_id: int) -> MealPlan | None:

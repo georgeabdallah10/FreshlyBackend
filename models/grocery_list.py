@@ -2,6 +2,8 @@
 from sqlalchemy import Integer, Text, DateTime, ForeignKey, Numeric, Boolean, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from core.db import Base
+from datetime import datetime
+from decimal import Decimal
 
 
 class GroceryList(Base):
@@ -12,7 +14,7 @@ class GroceryList(Base):
     meal_plan_id: Mapped[int | None] = mapped_column(ForeignKey("meal_plans.id", ondelete="SET NULL"))
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")  # draft | finalized | purchased
-    created_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # relationships
     family = relationship("Family", back_populates="grocery_lists")
@@ -29,7 +31,7 @@ class GroceryListItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     grocery_list_id: Mapped[int] = mapped_column(ForeignKey("grocery_lists.id", ondelete="CASCADE"), nullable=False)
     ingredient_id: Mapped[int] = mapped_column(ForeignKey("ingredients.id", ondelete="CASCADE"), nullable=False)
-    quantity: Mapped[float | None] = mapped_column(Numeric(10, 3), nullable=True)
+    quantity: Mapped[Decimal | None] = mapped_column(Numeric(10, 3), nullable=True)
     unit_id: Mapped[int | None] = mapped_column(ForeignKey("units.id"), nullable=True)
     checked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     note: Mapped[str | None] = mapped_column(Text, nullable=True)

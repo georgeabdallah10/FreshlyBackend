@@ -1,5 +1,5 @@
 # routers/meal_plans.py
-from fastapi import APIRouter, Depends, HTTPException, status, Path
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -18,10 +18,8 @@ from crud.meal_plans import (
 
 router = APIRouter(prefix="/meal-plans", tags=["meal_plans"])
 
-
 class ErrorOut(BaseModel):
     detail: str
-
 
 # ---- helpers ----
 def _ensure_member(db: Session, user_id: int, family_id: int) -> None:
@@ -44,7 +42,57 @@ def _ensure_can_edit(db: Session, user_id: int, family_id: int) -> None:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
 
 
-# ---- endpoints ----
+# ---------------- Personal Meal Endpoints ----------------
+
+@router.get("/me", response_model=list[MealPlanOut])
+def list_my_meals(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return list_meal_plans(db, created_by_user_id=current_user.id)
+
+
+@router.post("/me", response_model=MealPlanOut, status_code=status.HTTP_201_CREATED)
+def create_my_meal(
+    data: MealPlanCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return create_meal_plan(
+        db,
+        family_id=None,
+        title=data.title,
+        start_date=data.start_date,
+        end_date=data.end_date,
+        created_by_user_id=current_user.id,
+    )
+
+
+@router.patch("/me/{meal_id}", response_model=MealPlanOut)
+def update_my_meal(
+    meal_id: int,
+    data: MealPlanUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    meal = get_meal_plan(db, meal_id)
+    if not meal or meal.created_by_user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Meal not found or unauthorized")
+    return update_meal_plan(db, meal, **data.model_dump(exclude_unset=True))
+
+
+@router.delete("/me/{meal_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_meal(
+    meal_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    meal = get_meal_plan(db, meal_id)
+    if not meal or meal.created_by_user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Meal not found or unauthorized")
+    delete_meal_plan(db, meal)
+    return None
+
 @router.get(
     "/family/{family_id}",
     response_model=list[MealPlanOut],
@@ -93,6 +141,7 @@ def create_one_plan(
     )
 
 
+
 @router.patch(
     "/{plan_id}",
     response_model=MealPlanOut,
@@ -111,7 +160,7 @@ def update_one_plan(
     if not plan:
         raise HTTPException(status_code=404, detail="Meal plan not found")
     _ensure_can_edit(db, current_user.id, plan.family_id)
-    return update_meal_plan(db, plan, title=data.title, start_date=data.start_date, end_date=data.end_date)
+    return update_meal_plan(db, plan, **data.model_dump(exclude_unset=True))
 
 
 @router.delete(
@@ -133,3 +182,4 @@ def delete_one_plan(
     _ensure_can_edit(db, current_user.id, plan.family_id)
     delete_meal_plan(db, plan)
     return None
+
