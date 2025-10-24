@@ -12,7 +12,12 @@ app = FastAPI(title=settings.APP_NAME)
 origins = settings.CORS_ORIGINS or []
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins or ["*"],  # tighten to exact frontend origins in prod
+    allow_origins=[
+        "https://freshlybackend.duckdns.org",
+        "https://freshly-app-frontend.vercel.app",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

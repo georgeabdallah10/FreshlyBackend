@@ -4,7 +4,7 @@ from .user_preference import UserPreferenceCreate
 
 class RegisterIn(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., max_length=72)
     name: str | None = None
     phone_number: str | None = None
     model_config = ConfigDict(from_attributes=True)
