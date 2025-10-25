@@ -20,8 +20,11 @@ app.add_middleware(
     ],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
-)
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "x-user-id",  # ✅ Add this line
+    ],)
 app.include_router(auth_router.router)
 app.include_router(families_router.router)
 app.include_router(users_router.router)

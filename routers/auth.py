@@ -82,6 +82,10 @@ def login(data: LoginIn, db: Session = Depends(get_db)):
     user = authenticate_user(db, email=data.email, password=data.password)
     if not user:
         raise HTTPException(status_code=400, detail="Invalid credentials")
+    # TEMPORARILY SKIP EMAIL VERIFICATION
+    # If you want to enforce verification, uncomment below:
+    # if not user.is_verified:
+    #     raise HTTPException(status_code=403, detail="Please verify your email before logging in.")
     # issue JWT
     return TokenOut(access_token=create_access_token(sub=str(user.id)))
 
@@ -127,7 +131,7 @@ async def send_code(payload: SendCodeIn, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(user)
 
-    await send_verification_email(payload.email, code)
+    # await send_verification_email(payload.email, code)  # disabled for now
     return {"message": "Verification code sent."}
 
 @router.post("/verify-code")
@@ -149,7 +153,7 @@ def verify_code(payload: VerifyCodeIn, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Invalid verification code.")
 
     # success → mark verified and clear code
-    user.is_verified = True
+    # user.is_verified = True  # skipping verification update for now
     user.verification_code = None
     user.verification_expires_at = None
     db.add(user)
@@ -266,4 +270,3 @@ def reset_password(payload: ResetPasswordIn, db: Session = Depends(get_db)):
     db.commit()
 
     return {"message": "Password has been reset successfully."}
-   
