@@ -4,7 +4,7 @@ Backend for meal planning, inventory, and grocery lists — **FastAPI + SQLAlche
 
 ## Architecture
 - API: FastAPI (Python 3.11+), SQLAlchemy 2.0, Pydantic v2.
-- DB: SQLite for local; Postgres (Supabase) for staging/prod.
+- DB: Postgres (Supabase)
 - Auth: **Option A – FastAPI JWT** (API-enforced RBAC). RLS OFF initially.
 - ERD domains: Identity & membership, Personalization, Recipes, Planning, Inventory, Grocery (Pricing optional).
 
