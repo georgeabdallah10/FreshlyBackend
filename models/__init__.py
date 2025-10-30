@@ -27,3 +27,6 @@ from .grocery_list import GroceryList, GroceryListItem  # noqa: F401
 
 # Personalization
 from .user_preference import UserPreference  # noqa: F401
+
+# Chat
+from .chat import ChatConversation, ChatMessage  # noqa: F401

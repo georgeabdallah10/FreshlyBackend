@@ -60,6 +60,14 @@ class User(Base):
     )
     
     meals_created = relationship("Meal", back_populates="created_by")
+    
+    # Chat conversations
+    chat_conversations = relationship(
+        "ChatConversation",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
 
     def __repr__(self) -> str:
         return f"<User id={self.id} email={self.email!r}>"

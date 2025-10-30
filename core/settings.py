@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     SUPABASE_URL: str | None = None
     SUPABASE_SERVICE_ROLE: str | None = None
     AVATARS_BUCKET: str | None = "users"
+    
+    OPENAI_API_KEY: str
 
     DATABASE_URL: str
 
