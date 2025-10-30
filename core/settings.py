@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE: str | None = None
     AVATARS_BUCKET: str | None = "users"
     
-    OPENAI_API_KEY: str
+    OPENAI_API_KEY: str | None = "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"
 
     DATABASE_URL: str
 

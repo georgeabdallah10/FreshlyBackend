@@ -16,6 +16,9 @@ from schemas.chat import (
 import crud.chat as chat_crud
 
 OPENAI_API_KEY = settings.OPENAI_API_KEY
+if not OPENAI_API_KEY:
+    raise HTTPException(status_code=503, detail="Chat service is not configured. OpenAI API key is missing.")
+
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_MODEL = "gpt-4o-mini"  # Current available model - gpt-5-nano may not be publicly available yet
 
