@@ -10,7 +10,8 @@ from core.deps import get_current_user, get_db
 from models.user import User
 from schemas.chat import (
     ChatRequest, ChatResponse, ChatConversation, ChatConversationSummary,
-    ChatMessage, ChatConversationCreate
+    ChatMessage, ChatConversationCreate, ImageGenerationRequest, 
+    ImageGenerationResponse, ImageScanRequest, ImageScanResponse
 )
 from services.chat_service import chat_service
 
@@ -142,4 +143,28 @@ async def delete_conversation(
 ):
     """Delete a conversation and all its messages"""
     chat_service.delete_conversation(db, current_user, conversation_id)
-    return {"message": "Conversation deleted successfully"}  
+    return {"message": "Conversation deleted successfully"}
+
+
+@router.post("/generate-image", response_model=ImageGenerationResponse)
+async def generate_image(
+    request: ImageGenerationRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Generate an image using OpenAI's DALL-E"""
+    logger.info(f"Image generation request from user {current_user.id}: {request.prompt[:100]}...")
+    
+    return await chat_service.generate_image(db, current_user, request)
+
+
+@router.post("/scan-grocery", response_model=ImageScanResponse)
+async def scan_grocery_image(
+    request: ImageScanRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Scan a grocery image to identify items, quantities, and categories"""
+    logger.info(f"Grocery scan request from user {current_user.id}")
+    
+    return await chat_service.scan_grocery_image(db, current_user, request)  

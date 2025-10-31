@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Literal
+from enum import Enum
 
 
 class ChatMessageBase(BaseModel):
@@ -62,5 +63,42 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
+    conversation_id: int
+    message_id: int
+
+
+# Image Generation schemas
+class ImageGenerationRequest(BaseModel):
+    prompt: str
+    size: Literal["256x256", "512x512", "1024x1024", "1792x1024", "1024x1792"] = "1024x1024"
+    quality: Literal["standard", "hd"] = "standard"
+    style: Literal["vivid", "natural"] = "vivid"
+    conversation_id: Optional[int] = None
+
+
+class ImageGenerationResponse(BaseModel):
+    image_url: str
+    prompt: str
+    conversation_id: int
+    message_id: int
+
+
+# Grocery item schemas for image scanning
+class GroceryItem(BaseModel):
+    name: str
+    quantity: str  # e.g., "2 lbs", "3 pieces", "1 bottle"
+    category: str  # e.g., "fruits", "vegetables", "dairy", "meat", etc.
+    confidence: float = Field(ge=0.0, le=1.0, description="AI confidence score")
+
+
+class ImageScanRequest(BaseModel):
+    image_data: str  # Base64 encoded image
+    conversation_id: Optional[int] = None
+
+
+class ImageScanResponse(BaseModel):
+    items: List[GroceryItem]
+    total_items: int
+    analysis_notes: Optional[str] = None  # Any additional AI observations
     conversation_id: int
     message_id: int
