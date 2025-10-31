@@ -16,6 +16,7 @@ from crud.pantry_items import (
     delete_pantry_item,
     create_or_get_ingredient
 )
+from crud.ingredients import get_ingredient
 from services.pantry_image_service import pantry_image_service
 
 # at top of routers/pantry_items.py
