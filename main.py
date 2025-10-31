@@ -229,32 +229,18 @@ async def readiness_check():
             status_code=503,
             content={"status": "not_ready", "database": "disconnected", "error": str(e)}
         )
-# API Routes with versioning
-API_V1_PREFIX = "/api/v1"
 
-# New versioned routes
-app.include_router(auth_router.router, prefix=API_V1_PREFIX)
-app.include_router(families_router.router, prefix=API_V1_PREFIX)
-app.include_router(users_router.router, prefix=API_V1_PREFIX)
-app.include_router(memberships_router.router, prefix=API_V1_PREFIX)
-app.include_router(user_preferences.router, prefix=API_V1_PREFIX)
-app.include_router(pantry_items.router, prefix=API_V1_PREFIX)
-app.include_router(meal_plans.router, prefix=API_V1_PREFIX)
-app.include_router(chat.router, prefix=API_V1_PREFIX)
-app.include_router(meals.router, prefix=API_V1_PREFIX)
-app.include_router(storage.router, prefix=API_V1_PREFIX)
-
-# Legacy routes (backwards compatibility) - REMOVE THESE AFTER FRONTEND UPDATE
-app.include_router(auth_router.router, tags=["auth-legacy"])
-app.include_router(families_router.router, tags=["families-legacy"])
-app.include_router(users_router.router, tags=["users-legacy"])
-app.include_router(memberships_router.router, tags=["memberships-legacy"])
-app.include_router(user_preferences.router, tags=["preferences-legacy"])
-app.include_router(pantry_items.router, tags=["pantry-legacy"])
-app.include_router(meal_plans.router, tags=["meal-plans-legacy"])
-app.include_router(chat.router, tags=["chat-legacy"])
-app.include_router(meals.router, tags=["meals-legacy"])
-app.include_router(storage.router, tags=["storage-legacy"])
+# API Routes - Simple structure without versioning
+app.include_router(auth_router.router)
+app.include_router(families_router.router)
+app.include_router(users_router.router)
+app.include_router(memberships_router.router)
+app.include_router(user_preferences.router)
+app.include_router(pantry_items.router)
+app.include_router(meal_plans.router)
+app.include_router(chat.router)
+app.include_router(meals.router)
+app.include_router(storage.router)
 
 
 # Root endpoint
