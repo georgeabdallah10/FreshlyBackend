@@ -21,11 +21,6 @@ engine = create_engine(
     pool_pre_ping=True,              # Validate connections before use
     pool_recycle=3600,               # Recycle connections every hour
     # SSL and connection settings
-    connect_args={
-        "sslmode": "require",
-        "connect_timeout": 30,
-        "command_timeout": 60,
-    },
     # Echo SQL in development
     echo=settings.APP_ENV == "local" and settings.LOG_LEVEL == "DEBUG"
 )
