@@ -1,0 +1,81 @@
+I need to implement two new AI-powered features in my React/Next.js frontend for my meal planning app. The backend APIs are already working and deployed.
+
+## Feature 1: AI Image Generation
+Create a React component that lets users generate food/kitchen images from text prompts using my backend API.
+
+**API Endpoint:** `POST /chat/generate-image`
+**Request:**
+```typescript
+{
+  prompt: string;
+  size?: "1024x1024" | "1792x1024" | "1024x1792";
+  quality?: "standard" | "hd";
+  style?: "vivid" | "natural";
+}
+```
+**Response:**
+```typescript
+{
+  image_url: string;
+  prompt: string;
+  conversation_id: number;
+  message_id: number;
+}
+```
+
+**Component Requirements:**
+- Text area for prompt input (max 1000 chars)
+- Dropdown selectors for size, quality, style options
+- Generate button with loading state (30-60 second API calls)
+- Display generated image with download option
+- Error handling for failed generations
+- Modern, responsive UI
+
+## Feature 2: Grocery Image Scanning
+Create a React component that analyzes grocery photos to identify items, quantities, and categories.
+
+**API Endpoint:** `POST /chat/scan-grocery`
+**Request:**
+```typescript
+{
+  image_data: string; // base64 encoded image
+}
+```
+**Response:**
+```typescript
+{
+  items: Array<{
+    name: string;
+    quantity: string;
+    category: string;
+    confidence: number;
+  }>;
+  total_items: number;
+  analysis_notes?: string;
+}
+```
+
+**Component Requirements:**
+- File upload with drag-and-drop or camera capture
+- Image preview before scanning
+- Scan button with loading state (20-40 second API calls)
+- Results showing identified items in a clean list format
+- Color-coded confidence scores (green >0.8, yellow 0.5-0.8, red <0.5)
+- Option to add items to shopping list
+- Error handling for poor image quality or no items found
+- Mobile-responsive design
+
+## Technical Details:
+- **API Base URL:** `https://freshlybackend.duckdns.org`
+- **Authentication:** Include JWT token in Authorization header: `Bearer ${token}`
+- **File to Base64 conversion needed for grocery scanning**
+- **Handle long API response times with proper loading indicators**
+- **Integrate with existing app styling and navigation**
+
+## Create these files:
+1. `components/ImageGenerator.tsx` - Image generation component
+2. `components/GroceryScanner.tsx` - Grocery scanning component  
+3. `utils/aiApi.ts` - API service functions
+4. `pages/ai-features.tsx` - Main page with both features
+
+Include proper TypeScript types, error handling, loading states, and a polished UI that matches a modern meal planning app aesthetic. Make the components reusable and well-documented.

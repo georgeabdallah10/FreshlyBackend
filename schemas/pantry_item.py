@@ -70,6 +70,7 @@ class PantryItemOut(BaseModel):
     scope: Literal["personal", "family"]
     category: str | None = None   # <— add
     ingredient_name: str | None = None
+    image_url: str | None = None  # Generated image URL
 
     ingredient_id: int
     quantity: Optional[Decimal] = None

@@ -1,5 +1,5 @@
 # routers/pantry_items.py
-from fastapi import APIRouter, Depends, HTTPException, status, Path
+from fastapi import APIRouter, Depends, HTTPException, status, Path, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -16,6 +16,7 @@ from crud.pantry_items import (
     delete_pantry_item,
     create_or_get_ingredient
 )
+from services.pantry_image_service import pantry_image_service
 
 # at top of routers/pantry_items.py
 from typing import List
@@ -36,6 +37,7 @@ def _to_out(item: PantryItem) -> PantryItemOut:
         family_id=item.family_id,
         owner_user_id=item.owner_user_id,
         scope=scope,
+        image_url=item.image_url,  # Include generated image URL
         created_at=item.created_at,
         updated_at=item.updated_at,
     )
@@ -80,16 +82,26 @@ def list_for_family(
     status_code=status.HTTP_201_CREATED,
     responses={403: {"model": ErrorOut, "description": "Not a member"}},
 )
-def create_one_item(
+async def create_one_item(
     data: PantryItemCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     # Resolve ingredient: if no id is provided but a name is, create or fetch it
     ingredient_id = data.ingredient_id
+    ingredient_name = data.name
+    
     if ingredient_id is None and data.name:
         ing = create_or_get_ingredient(db, data.name)
         ingredient_id = ing.id
+        ingredient_name = ing.name
+    elif ingredient_id and not ingredient_name:
+        # Get ingredient name from database
+        from crud.ingredients import get_ingredient
+        ing = get_ingredient(db, ingredient_id)
+        if ing:
+            ingredient_name = ing.name
 
     # Support both family and personal scopes
     if data.scope == "family":
@@ -103,7 +115,16 @@ def create_one_item(
             expires_at=data.expires_at,
             category=data.category
         )
+        
+        # Schedule background image generation
+        if ingredient_name:
+            background_tasks.add_task(
+                pantry_image_service.generate_image_background,
+                db, current_user, created, ingredient_name
+            )
+        
         return _to_out(created)
+        
     elif data.scope == "personal":
         created = create_pantry_item(
             db,
@@ -115,6 +136,14 @@ def create_one_item(
             expires_at=data.expires_at,
             category=data.category
         )
+        
+        # Schedule background image generation
+        if ingredient_name:
+            background_tasks.add_task(
+                pantry_image_service.generate_image_background,
+                db, current_user, created, ingredient_name
+            )
+        
         return _to_out(created)
     else:
         raise HTTPException(status_code=400, detail="Invalid scope")
