@@ -67,19 +67,40 @@ app.add_middleware(
 )
 
 # CORS middleware
-origins = settings.CORS_ORIGINS + [
-    "https://freshlybackend.duckdns.org",
-    "https://freshly-app-frontend.vercel.app",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-] if settings.APP_ENV == "local" else settings.CORS_ORIGINS
+if settings.APP_ENV == "local":
+    # Development - allow all origins
+    origins = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://freshly-app-frontend.vercel.app",
+        "https://freshlybackend.duckdns.org",
+    ]
+else:
+    # Production - use configured origins
+    origins = settings.CORS_ORIGINS or [
+        "https://freshly-app-frontend.vercel.app",
+        "https://freshlybackend.duckdns.org"
+    ]
+
+logger.info(f"CORS origins configured: {origins}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=[
+        "Accept",
+        "Accept-Language",
+        "Content-Language",
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "Origin",
+        "Access-Control-Request-Method",
+        "Access-Control-Request-Headers",
+    ],
+    expose_headers=["X-Correlation-ID", "X-Process-Time"],
 )
 
 
@@ -161,6 +182,33 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 
+# Explicit preflight handler for CORS
+@app.options("/{full_path:path}")
+async def preflight_handler(request: Request):
+    """Handle CORS preflight requests explicitly"""
+    response = JSONResponse(content={})
+    
+    # Get origin from request
+    origin = request.headers.get("origin")
+    
+    if origin:
+        # Check if origin is allowed
+        allowed_origins = [
+            "https://freshly-app-frontend.vercel.app",
+            "https://freshlybackend.duckdns.org",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000"
+        ]
+        
+        if origin in allowed_origins or settings.APP_ENV == "local":
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin"
+            response.headers["Access-Control-Max-Age"] = "86400"  # 24 hours
+    
+    return response
+
 # Health check endpoints
 @app.get("/health")
 async def health_check():
@@ -184,6 +232,7 @@ async def readiness_check():
 # API Routes with versioning
 API_V1_PREFIX = "/api/v1"
 
+# New versioned routes
 app.include_router(auth_router.router, prefix=API_V1_PREFIX)
 app.include_router(families_router.router, prefix=API_V1_PREFIX)
 app.include_router(users_router.router, prefix=API_V1_PREFIX)
@@ -194,6 +243,18 @@ app.include_router(meal_plans.router, prefix=API_V1_PREFIX)
 app.include_router(chat.router, prefix=API_V1_PREFIX)
 app.include_router(meals.router, prefix=API_V1_PREFIX)
 app.include_router(storage.router, prefix=API_V1_PREFIX)
+
+# Legacy routes (backwards compatibility) - REMOVE THESE AFTER FRONTEND UPDATE
+app.include_router(auth_router.router, tags=["auth-legacy"])
+app.include_router(families_router.router, tags=["families-legacy"])
+app.include_router(users_router.router, tags=["users-legacy"])
+app.include_router(memberships_router.router, tags=["memberships-legacy"])
+app.include_router(user_preferences.router, tags=["preferences-legacy"])
+app.include_router(pantry_items.router, tags=["pantry-legacy"])
+app.include_router(meal_plans.router, tags=["meal-plans-legacy"])
+app.include_router(chat.router, tags=["chat-legacy"])
+app.include_router(meals.router, tags=["meals-legacy"])
+app.include_router(storage.router, tags=["storage-legacy"])
 
 
 # Root endpoint
