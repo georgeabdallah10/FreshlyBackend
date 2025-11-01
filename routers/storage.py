@@ -3,8 +3,11 @@ import os
 from PIL import Image
 from fastapi import APIRouter, File, UploadFile, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 from core.supaBase_client import get_supabase_admin
-from core.auth import get_app_user_id   # uses x-user-id header
+from core.deps import get_current_user  # Use standard JWT authentication
+from core.db import get_db
+from models.user import User
 from io import BytesIO
 
 # Helper to normalize get_public_url return shape
@@ -36,9 +39,10 @@ def detect_image_type(data: bytes) -> str | None:
 
 @router.post("/avatar/proxy")
 async def upload_avatar_proxy(
-    user_id: str = Depends(get_app_user_id),  # <- comes from x-user-id
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)  # Use JWT authentication
 ):
+    user_id = str(current_user.id)  # Convert user ID to string
     raw = await file.read()
     if len(raw) > MAX_BYTES:
         raise HTTPException(status_code=413, detail="Image too large")
@@ -67,8 +71,9 @@ async def upload_avatar_proxy(
 
 @router.post("/avatar/signed_url")
 async def create_avatar_signed_upload(
-    user_id: str = Depends(get_app_user_id),  # <- from x-user-id
+    current_user: User = Depends(get_current_user)  # Use JWT authentication
 ):
+    user_id = str(current_user.id)  # Convert user ID to string
     path = f"{user_id}/profile.jpg"           # enforce JPEG from client
     sb = get_supabase_admin()
 

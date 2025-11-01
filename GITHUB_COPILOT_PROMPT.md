@@ -2,48 +2,17 @@
 
 ---
 
-I need to implement three AI features in my React/Next.js meal planning app. The backend APIs are deployed and working at `https://freshlybackend.duckdns.org`.
-
-## 🎨 Feature 1: AI Image Generation
-
-**Endpoint:** `POST https://freshlybackend.duckdns.org/chat/generate-image`
-
-Create a React component with:
-- Text area for image prompt (placeholder: "A cozy kitchen with fresh vegetables...")
-- Dropdowns for size ("1024x1024", "1792x1024", "1024x1792"), quality ("standard", "hd"), style ("vivid", "natural")
-- Generate button with 30-60 second loading state
-- Display generated image with download button
-- Error handling for API failures
-
-**Request format:**
-```json
-{
-  "prompt": "A beautiful kitchen with fresh ingredients",
-  "size": "1024x1024",
-  "quality": "hd", 
-  "style": "natural"
-}
-```
-
-**Response format:**
-```json
-{
-  "image_url": "https://...",
-  "prompt": "...",
-  "conversation_id": 123,
-  "message_id": 456
-}
-```
+I need to implement three AI features in my React-native tsx meal planning app. The backend APIs are deployed and working at `https://freshlybackend.duckdns.org`.
 
 ## 🛒 Feature 2: Grocery Image Scanning  
 
 **Endpoint:** `POST https://freshlybackend.duckdns.org/chat/scan-grocery`
 
-Create a React component with:
+In the quick add modal and all grocery implement:
 - File upload with drag-and-drop (accept="image/*")
 - Camera capture option for mobile
 - Image preview before scanning
-- Scan button with 20-40 second loading state
+- Scan button with 10-30 second loading state
 - Results showing items in cards/list with name, quantity, category
 - Color-coded confidence scores (green >0.8, yellow 0.5-0.8, red <0.5)
 - "Add to Shopping List" button for each item
@@ -86,6 +55,8 @@ Create a React component with:
 - Show placeholder/loading state while image is being generated
 - Handle cases where image generation fails (fallback to default icon)
 - Add image refresh option for existing items without images
+- so basiccly, after the user creates a pantry item, it will call this endpoint generate an image in the pantry_items bucket in supabase using this end url {userID}/{pantryItemID}/name.jpg. Then in pantry.tsx implement that each item will search images from that supabase bucket using this url end {userID}/{pantryItemID}/name.jpg and then display it 
+
 
 **Enhanced Pantry Item Response:**
 ```json
@@ -132,9 +103,7 @@ const fileToBase64 = (file) => {
 - Dark/light theme support
 
 ## 📁 File Structure:
-Create these files:
-- `components/ImageGenerator.tsx` - Manual image generation component
-- `components/GroceryScanner.tsx` - Grocery scanning component
+Create/edit these files:
 - `components/PantryItemCard.tsx` - Enhanced pantry item display with auto-generated images
 - `utils/aiApi.ts` - API functions for all AI features
 - `pages/ai-features.tsx` - Main page with manual AI tools

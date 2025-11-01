@@ -91,7 +91,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=[
         "Accept",
-        "Accept-Language",
+        "Accept-Language", 
         "Content-Language",
         "Content-Type",
         "Authorization",
@@ -99,6 +99,7 @@ app.add_middleware(
         "Origin",
         "Access-Control-Request-Method",
         "Access-Control-Request-Headers",
+        "X-User-ID",  # Add support for custom headers
     ],
     expose_headers=["X-Correlation-ID", "X-Process-Time"],
 )
@@ -186,7 +187,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 @app.options("/{full_path:path}")
 async def preflight_handler(request: Request):
     """Handle CORS preflight requests explicitly"""
-    response = JSONResponse(content={})
+    response = JSONResponse(content=None, status_code=200)
     
     # Get origin from request
     origin = request.headers.get("origin")
@@ -195,7 +196,7 @@ async def preflight_handler(request: Request):
         # Check if origin is allowed
         allowed_origins = [
             "https://freshly-app-frontend.vercel.app",
-            "https://freshlybackend.duckdns.org",
+            "https://freshlybackend.duckdns.org", 
             "http://localhost:3000",
             "http://127.0.0.1:3000"
         ]
@@ -204,7 +205,7 @@ async def preflight_handler(request: Request):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin"
+            response.headers["Access-Control-Allow-Headers"] = "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin, X-User-ID"
             response.headers["Access-Control-Max-Age"] = "86400"  # 24 hours
     
     return response
