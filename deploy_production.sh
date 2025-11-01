@@ -20,11 +20,12 @@ git reset --hard origin/main
 # 4. Activate virtual environment and update dependencies
 echo "📦 Updating dependencies..."
 source .venv/bin/activate
-pip install -r requirements.txt --quiet
+pip install --upgrade pip --quiet
+pip install -r requirements.txt
 
 # 5. Apply database migrations
 echo "🗄️  Applying database migrations..."
-python -m alembic upgrade head
+alembic upgrade head
 
 # 6. Add OpenAI API key to .env if not present
 echo "🔑 Checking environment variables..."
