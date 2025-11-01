@@ -1,4 +1,5 @@
 from typing import Optional
+from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator
 from .user_preference import UserPreferenceOut
 
@@ -28,6 +29,8 @@ class UserOut(BaseModel):
     location: Optional[str] = None
     status: Optional[str] = "user"
     avatar_path: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
     
 
     class Config:

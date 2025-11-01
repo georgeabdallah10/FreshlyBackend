@@ -15,6 +15,7 @@ class User(Base):
     location = sa.Column(sa.String(255), nullable=True) 
     hashed_password = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     avatar_path = Column(String, nullable=True)
     status = Column(sa.String(50), nullable=False, server_default="active")
     
