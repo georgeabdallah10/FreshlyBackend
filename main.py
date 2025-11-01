@@ -99,7 +99,7 @@ app.add_middleware(
         "Origin",
         "Access-Control-Request-Method",
         "Access-Control-Request-Headers",
-        "X-User-ID",  # Add support for custom headers
+        # Removed X-User-ID as we now use JWT authentication instead
     ],
     expose_headers=["X-Correlation-ID", "X-Process-Time"],
 )
@@ -205,7 +205,7 @@ async def preflight_handler(request: Request):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin, X-User-ID"
+            response.headers["Access-Control-Allow-Headers"] = "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin"
             response.headers["Access-Control-Max-Age"] = "86400"  # 24 hours
     
     return response
