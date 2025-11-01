@@ -202,7 +202,7 @@ class ChatService:
         
         timeout = httpx.Timeout(60.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(self.openai_url, headers=headers, json=payload)
+            response = await client.post(self.openai_chat_url, headers=headers, json=payload)
             response.raise_for_status()
             
             result = response.json()
