@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     AVATARS_BUCKET: Optional[str] = "users"
     
     # AI/OpenAI settings
-    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_API_KEY: Optional[str]
     OPENAI_MAX_TOKENS: int = 1000
     OPENAI_TEMPERATURE: float = 0.7
     
