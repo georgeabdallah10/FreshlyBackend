@@ -38,7 +38,7 @@ class ChatService:
 
     def _check_api_availability(self) -> None:
         """Check if OpenAI API is configured"""
-        if not self.openai_api_key:
+        if not settings.openai_enabled:
             raise HTTPException(
                 status_code=503, 
                 detail="Chat service is not configured. OpenAI API key is missing."

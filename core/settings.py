@@ -132,6 +132,11 @@ class Settings(BaseSettings):
         """Check if running in development"""
         return self.APP_ENV in ["local", "development"]
 
+    @property
+    def openai_enabled(self) -> bool:
+        """Check if OpenAI features are available"""
+        return bool(self.OPENAI_API_KEY and self.OPENAI_API_KEY.strip())
+
 
 # Global settings instance
 settings = Settings()
