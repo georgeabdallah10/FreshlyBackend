@@ -216,6 +216,25 @@ async def health_check():
     """Basic health check"""
     return {"status": "healthy", "app": settings.APP_NAME, "env": settings.APP_ENV}
 
+@app.get("/debug/version")
+async def debug_version():
+    """Debug endpoint to check current code version"""
+    import subprocess
+    try:
+        # Get git commit hash if available
+        result = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], 
+                              capture_output=True, text=True, cwd='.')
+        git_hash = result.stdout.strip() if result.returncode == 0 else "unknown"
+    except:
+        git_hash = "unknown"
+    
+    return {
+        "git_commit": git_hash,
+        "openai_configured": settings.openai_enabled,
+        "storage_auth_method": "JWT via get_current_user",
+        "cors_headers_removed": "X-User-ID removed from CORS",
+        "timestamp": "2025-11-01T18:55:00Z"
+    }
 
 @app.get("/ready")
 async def readiness_check():
