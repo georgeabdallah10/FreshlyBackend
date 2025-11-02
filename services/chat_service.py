@@ -277,7 +277,7 @@ class ChatService:
             conversation_id = conversation.id
         
         # Save user's request as a message
-        user_message = chat_crud.create_message(
+        user_message = chat_crud.add_message(
             db, conversation_id, "user", f"Generate image: {request.prompt}"
         )
         
@@ -315,7 +315,7 @@ class ChatService:
             image_url = result["data"][0]["url"]
             
             # Save AI response as a message
-            ai_message = chat_crud.create_message(
+            ai_message = chat_crud.add_message(
                 db, conversation_id, "assistant", 
                 f"Generated image for: {request.prompt}\nImage URL: {image_url}"
             )
@@ -352,7 +352,7 @@ class ChatService:
             conversation_id = conversation.id
         
         # Save user's request as a message
-        user_message = chat_crud.create_message(
+        user_message = chat_crud.add_message(
             db, conversation_id, "user", "Uploaded grocery image for scanning"
         )
         
@@ -362,27 +362,29 @@ class ChatService:
                 "Content-Type": "application/json"
             }
             
-            # System prompt for grocery scanning
-            system_prompt = """You are a grocery item recognition expert. Analyze the uploaded image and identify all grocery items visible. For each item, provide:
-1. Name of the item (be specific, e.g., "Red Delicious Apples" not just "Apples")
-2. Estimated quantity (e.g., "3 pieces", "2 lbs", "1 bottle")
-3. Category (fruits, vegetables, dairy, meat, snacks, beverages, pantry, frozen, etc.)
-4. Confidence score (0.0 to 1.0)
-
-Return the response as a JSON object with this exact structure:
+            # System prompt for grocery scanning with strict JSON schema
+            system_prompt = """You are a grocery item recognition expert. Analyze images and identify all visible grocery items.
+            
+Return a JSON object with this EXACT structure:
 {
   "items": [
     {
-      "name": "item name",
-      "quantity": "estimated quantity",
-      "category": "category",
+      "name": "specific item name",
+      "quantity": "amount with unit (e.g., '3 pieces', '2 lbs', '1 bottle')",
+      "category": "category (fruits/vegetables/dairy/meat/snacks/beverages/pantry/frozen/bakery/other)",
       "confidence": 0.95
     }
   ],
-  "analysis_notes": "Any additional observations about the image quality, lighting, or items that were hard to identify"
+  "analysis_notes": "observations about image quality or identification challenges"
 }
 
-Be thorough but only include items you can clearly identify. If the image quality is poor or items are unclear, mention this in analysis_notes."""
+Guidelines:
+- Be specific with names (e.g., "Red Delicious Apples" not "Apples")
+- Estimate quantities realistically with proper units
+- Use standard categories: fruits, vegetables, dairy, meat, snacks, beverages, pantry, frozen, bakery, other
+- Confidence: 0.9-1.0 (certain), 0.7-0.9 (likely), 0.5-0.7 (possible), <0.5 (uncertain)
+- Only include items you can identify with reasonable confidence
+- Mention image quality issues in analysis_notes"""
 
             payload = {
                 "model": self.vision_model,
@@ -396,7 +398,7 @@ Be thorough but only include items you can clearly identify. If the image qualit
                         "content": [
                             {
                                 "type": "text",
-                                "text": "Please analyze this grocery image and identify all items with their quantities and categories."
+                                "text": "Analyze this grocery image and identify all items with their quantities, categories, and confidence scores."
                             },
                             {
                                 "type": "image_url",
@@ -408,7 +410,8 @@ Be thorough but only include items you can clearly identify. If the image qualit
                     }
                 ],
                 "max_tokens": 1500,
-                "temperature": 0.1  # Low temperature for consistent parsing
+                "temperature": 0.1,  # Low temperature for consistent results
+                "response_format": {"type": "json_object"}  # Force JSON output
             }
             
             async with httpx.AsyncClient(timeout=60.0) as client:
@@ -432,22 +435,50 @@ Be thorough but only include items you can clearly identify. If the image qualit
             # Parse the JSON response
             try:
                 parsed_data = json.loads(ai_response)
-                items = [
-                    GroceryItem(**item) for item in parsed_data.get("items", [])
-                ]
-                analysis_notes = parsed_data.get("analysis_notes")
-            except (json.JSONDecodeError, TypeError) as e:
-                logger.error(f"Failed to parse AI response: {e}")
-                # Fallback: treat as plain text
+                
+                # Validate the response structure
+                if not isinstance(parsed_data, dict) or "items" not in parsed_data:
+                    logger.error(f"Invalid response structure: {ai_response}")
+                    raise ValueError("Response missing 'items' array")
+                
+                # Parse each item with validation
                 items = []
-                analysis_notes = f"AI response could not be parsed as JSON: {ai_response}"
+                for item_data in parsed_data.get("items", []):
+                    try:
+                        # Validate required fields
+                        if not all(key in item_data for key in ["name", "quantity", "category", "confidence"]):
+                            logger.warning(f"Skipping item with missing fields: {item_data}")
+                            continue
+                        
+                        # Create GroceryItem with validated data
+                        item = GroceryItem(
+                            name=str(item_data["name"]).strip(),
+                            quantity=str(item_data["quantity"]).strip(),
+                            category=str(item_data["category"]).strip().lower(),
+                            confidence=float(item_data["confidence"])
+                        )
+                        items.append(item)
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Skipping invalid item: {item_data}, error: {e}")
+                        continue
+                
+                analysis_notes = parsed_data.get("analysis_notes", "")
+                
+                # Log success metrics
+                logger.info(f"Successfully parsed {len(items)} items from grocery scan")
+                
+            except (json.JSONDecodeError, ValueError, KeyError) as e:
+                logger.error(f"Failed to parse AI response: {e}, response: {ai_response[:500]}")
+                # Fallback: return empty result with error note
+                items = []
+                analysis_notes = f"Error parsing AI response: {str(e)}. The image may not contain recognizable grocery items or the quality may be too poor."
             
             # Save AI response as a message
             response_text = f"Grocery scan completed. Found {len(items)} items."
             if analysis_notes:
                 response_text += f"\n\nNotes: {analysis_notes}"
             
-            ai_message = chat_crud.create_message(
+            ai_message = chat_crud.add_message(
                 db, conversation_id, "assistant", response_text
             )
             
