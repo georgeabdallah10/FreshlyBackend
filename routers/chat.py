@@ -1,6 +1,7 @@
 # routers/chat.py  
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Query
+import base64
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import List
@@ -167,4 +168,87 @@ async def scan_grocery_image(
     """Scan a grocery image to identify items, quantities, and categories"""
     logger.info(f"Grocery scan request from user {current_user.id}")
     
-    return await chat_service.scan_grocery_image(db, current_user, request)  
+    return await chat_service.scan_grocery_image(db, current_user, request)
+
+
+@router.post("/scan-grocery-proxy", response_model=ImageScanResponse)
+async def scan_grocery_proxy(
+    file: UploadFile = File(..., description="Image file (JPEG/PNG, max 2MB)"),
+    scan_type: str = Form(..., description="Type of scan: 'groceries' or 'receipt'"),
+    conversation_id: int | None = Form(None, description="Optional conversation ID"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    iOS Safari-compatible endpoint for scanning grocery/receipt images.
+    
+    Accepts multipart/form-data instead of JSON with base64. This endpoint:
+    - Accepts image file uploads (JPEG/PNG, max 2MB)
+    - Validates scan type (groceries or receipt)
+    - Converts to base64 and uses existing AI processing
+    - Returns same response format as /scan-grocery
+    
+    Args:
+        file: Image file (JPEG or PNG, max 2MB)
+        scan_type: Either "groceries" or "receipt"
+        conversation_id: Optional conversation ID to continue existing conversation
+        
+    Returns:
+        ImageScanResponse with items array and total_items count
+    """
+    # Validate scan type
+    if scan_type not in ["groceries", "receipt"]:
+        raise HTTPException(
+            status_code=400, 
+            detail="Invalid scan_type. Must be 'groceries' or 'receipt'"
+        )
+    
+    # Validate file type
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid file type. Must be an image (image/jpeg or image/png)"
+        )
+    
+    logger.info(
+        f"Grocery proxy scan request from user {current_user.id}: "
+        f"type={scan_type}, file={file.filename}, content_type={file.content_type}"
+    )
+    
+    try:
+        # Read file contents
+        contents = await file.read()
+        
+        # Validate file size (2MB limit)
+        if len(contents) > 2 * 1024 * 1024:
+            raise HTTPException(
+                status_code=413,
+                detail="File too large. Maximum size is 2MB"
+            )
+        
+        # Convert to base64
+        base64_image = base64.b64encode(contents).decode('utf-8')
+        
+        logger.debug(f"Converted image to base64: {len(base64_image)} characters")
+        
+        # Create ImageScanRequest to reuse existing service
+        scan_request = ImageScanRequest(
+            image_data=base64_image,
+            conversation_id=conversation_id
+        )
+        
+        # Call existing AI processing service - same as /scan-grocery endpoint
+        result = await chat_service.scan_grocery_image(db, current_user, scan_request)
+        
+        logger.info(f"Scan completed: {result.total_items} items found")
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing grocery proxy scan: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process image: {str(e)}"
+        )
