@@ -42,9 +42,11 @@ class Settings(BaseSettings):
     
     # Database configuration
     DATABASE_URL: str
-    DATABASE_POOL_SIZE: int = 20
-    DATABASE_MAX_OVERFLOW: int = 30
-    DATABASE_POOL_TIMEOUT: int = 30
+    # Note: Pool settings below are not used with NullPool (default for Supabase)
+    # NullPool is used to avoid "MaxClientsInSessionMode" errors
+    DATABASE_POOL_SIZE: int = 20  # Kept for backward compatibility
+    DATABASE_MAX_OVERFLOW: int = 30  # Kept for backward compatibility
+    DATABASE_POOL_TIMEOUT: int = 30  # Kept for backward compatibility
 
     # API rate limiting
     RATE_LIMIT_REQUESTS: int = 100

@@ -7,23 +7,23 @@ from core.settings import settings
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.pool import QueuePool
+from sqlalchemy.pool import NullPool, QueuePool
 
 logger = logging.getLogger(__name__)
 
-# Enhanced engine configuration with connection pooling
+# Supabase has a connection limit in session mode, so we use conservative pooling
+# NullPool is recommended for serverless/Supabase to avoid "MaxClientsInSessionMode" errors
 engine = create_engine(
     settings.DATABASE_URL,
-    # Connection pool settings for production
-    poolclass=QueuePool,
-    pool_size=20,                    # Number of connections to maintain
-    max_overflow=30,                 # Additional connections if pool is full
+    # Use NullPool for Supabase to avoid connection limit issues
+    # Each request gets a fresh connection and closes it immediately
+    poolclass=NullPool,
+    # Connection settings
     pool_pre_ping=True,              # Validate connections before use
-    pool_recycle=3600,               # Recycle connections every hour
-    # SSL and connection settings
     connect_args={
         "sslmode": "require",
-        "connect_timeout": 30,
+        "connect_timeout": 10,       # Reduced timeout
+        "options": "-c statement_timeout=30000"  # 30 second query timeout
     },
     # Echo SQL in development
     echo=settings.APP_ENV == "local" and settings.LOG_LEVEL == "DEBUG"
@@ -44,21 +44,31 @@ class Base(DeclarativeBase):
 
 
 def get_db() -> Generator[Session, None, None]:
-    """Dependency to get database session"""
+    """
+    Dependency to get database session.
+    Ensures connection is always closed to prevent Supabase MaxClientsInSessionMode errors.
+    """
     db = SessionLocal()
     try:
         yield db
+        # Commit if no exception occurred
+        db.commit()
     except Exception as e:
         logger.error(f"Database session error: {e}")
         db.rollback()
         raise
     finally:
+        # Always close the session to return connection to pool
         db.close()
+        logger.debug("Database session closed")
 
 
 @contextmanager
 def get_db_context():
-    """Context manager for database sessions"""
+    """
+    Context manager for database sessions in non-FastAPI contexts.
+    Ensures connection is always closed to prevent connection leaks.
+    """
     db = SessionLocal()
     try:
         yield db
@@ -69,6 +79,7 @@ def get_db_context():
         raise
     finally:
         db.close()
+        logger.debug("Database context session closed")
 
 
 # Event listeners for connection monitoring
@@ -84,6 +95,12 @@ def receive_checkout(dbapi_connection, connection_record, connection_proxy):
     logger.debug("Connection checked out from pool")
 
 
+@event.listens_for(engine, "close")
+def receive_close(dbapi_connection, connection_record):
+    """Log connection closure"""
+    logger.debug("Database connection closed")
+
+
 # Health check function
 def check_database_health() -> bool:
     """Check if database is accessible"""
@@ -94,3 +111,30 @@ def check_database_health() -> bool:
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
         return False
+
+
+def get_pool_status() -> dict:
+    """
+    Get current connection pool status.
+    Note: With NullPool, this will show minimal stats.
+    """
+    try:
+        pool = engine.pool
+        return {
+            "pool_class": pool.__class__.__name__,
+            "size": getattr(pool, "size", lambda: "N/A")(),
+            "checked_in": getattr(pool, "checkedin", lambda: "N/A")(),
+            "overflow": getattr(pool, "overflow", lambda: "N/A")(),
+        }
+    except Exception as e:
+        logger.error(f"Failed to get pool status: {e}")
+        return {"error": str(e)}
+
+
+def dispose_engine():
+    """
+    Dispose of all connections in the pool.
+    Useful for cleanup or resetting connections.
+    """
+    logger.info("Disposing database engine and closing all connections")
+    engine.dispose()
