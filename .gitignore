@@ -3,3 +3,8 @@ __pycache__/
 .env
 *.sqlite
 *.db
+# Node.js (should not be in Python project)
+node_modules/
+package.json
+package-lock.json
+yarn.lock
