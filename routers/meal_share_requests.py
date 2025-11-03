@@ -19,6 +19,11 @@ from crud.meal_share_requests import (
     delete_share_request
 )
 from crud.meals import get_meal
+from crud.notifications import (
+    create_meal_share_request_notification,
+    create_meal_share_accepted_notification,
+    create_meal_share_declined_notification
+)
 from schemas.meal_share_request import (
     MealShareRequestCreate,
     MealShareRequestOut,
@@ -71,6 +76,17 @@ def send_meal_share_request(
     
     # Create the request
     request = create_share_request(db, data, current_user.id, meal.family_id)
+    
+    # Create notification for the receiver
+    create_meal_share_request_notification(
+        db,
+        receiver_id=data.recipient_user_id,
+        sender_name=current_user.name or current_user.email,
+        meal_name=meal.name,
+        share_request_id=request.id,
+        meal_id=meal.id,
+        sender_id=current_user.id
+    )
     
     # Build response with additional data
     return MealShareRequestOut(
@@ -199,8 +215,28 @@ def respond_to_share_request(
     # Accept or decline
     if response.action == "accept":
         updated_request = accept_share_request(db, share_request)
+        # Create notification for sender
+        create_meal_share_accepted_notification(
+            db,
+            sender_id=share_request.sender_user_id,
+            receiver_name=current_user.name or current_user.email,
+            meal_name=share_request.meal.name if share_request.meal else "meal",
+            share_request_id=share_request.id,
+            meal_id=share_request.meal_id,
+            receiver_id=current_user.id
+        )
     else:
         updated_request = decline_share_request(db, share_request)
+        # Create notification for sender
+        create_meal_share_declined_notification(
+            db,
+            sender_id=share_request.sender_user_id,
+            receiver_name=current_user.name or current_user.email,
+            meal_name=share_request.meal.name if share_request.meal else "meal",
+            share_request_id=share_request.id,
+            meal_id=share_request.meal_id,
+            receiver_id=current_user.id
+        )
     
     return MealShareRequestOut(
         id=updated_request.id,

@@ -12,7 +12,7 @@ from core.settings import settings
 from core.db import engine
 from core.security import RateLimitMiddleware, SecurityHeadersMiddleware
 from routers import auth as auth_router, families as families_router
-from routers import meals, storage, chat, meal_plans, pantry_items, user_preferences, memberships as memberships_router, users as users_router, meal_share_requests
+from routers import meals, storage, chat, meal_plans, pantry_items, user_preferences, memberships as memberships_router, users as users_router, meal_share_requests, notifications
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -261,6 +261,7 @@ app.include_router(meal_plans.router)
 app.include_router(chat.router)
 app.include_router(meals.router)
 app.include_router(meal_share_requests.router)
+app.include_router(notifications.router)
 app.include_router(storage.router)
 
 
