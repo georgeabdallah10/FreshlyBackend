@@ -10,7 +10,7 @@ import sys
 from typing import Optional
 
 # Configuration
-BASE_URL = "http://localhost:8000"  # Change to production URL if needed
+BASE_URL = "https://freshlybackend.duckdns.org"  # Change to production URL if needed
 
 def print_section(title: str):
     """Print a section header"""

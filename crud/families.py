@@ -1,6 +1,6 @@
 # crud/families.py
 import secrets
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, selectinload
 from models.family import Family
 from models.membership import FamilyMembership
 from models.user import User
@@ -49,10 +49,11 @@ def list_members(db: Session, family_id: int) -> list[FamilyMembership]:
     """
     Get all members of a family with their user data eagerly loaded.
     Returns memberships with nested user objects for proper frontend display.
+    Uses selectinload to load user relationships in a separate query.
     """
     return (
         db.query(FamilyMembership)
-        .options(joinedload(FamilyMembership.user))
+        .options(selectinload(FamilyMembership.user))
         .filter(FamilyMembership.family_id == family_id)
         .all()
     )
