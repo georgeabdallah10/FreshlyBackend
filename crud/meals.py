@@ -32,7 +32,6 @@ def create_meal(db: Session, data: MealCreate, created_by_user_id: int):
         cooking_tools=data.cooking_tools,
         notes=data.notes,
         is_favorite=data.is_favorite,
-        shared_with_family=data.shared_with_family,
     )
     db.add(meal); db.commit(); db.refresh(meal)
     return meal
@@ -45,30 +44,6 @@ def update_meal(db: Session, meal: Meal, data: MealCreate):
 
 def delete_meal(db: Session, meal: Meal):
     db.delete(meal); db.commit()
-
-# Family meal sharing functions
-def share_meal_with_family(db: Session, meal: Meal) -> Meal:
-    """Share a meal with the family."""
-    meal.shared_with_family = True
-    db.add(meal)
-    db.commit()
-    db.refresh(meal)
-    return meal
-
-def unshare_meal_with_family(db: Session, meal: Meal) -> Meal:
-    """Unshare a meal from the family."""
-    meal.shared_with_family = False
-    db.add(meal)
-    db.commit()
-    db.refresh(meal)
-    return meal
-
-def list_family_shared_meals(db: Session, family_id: int) -> List[Meal]:
-    """List all meals shared with a specific family."""
-    return db.query(Meal).filter(
-        Meal.family_id == family_id,
-        Meal.shared_with_family == True
-    ).all()
 
 def list_user_all_meals(db: Session, user_id: int) -> List[Meal]:
     """List all meals created by a specific user (for family owner read-only view)."""

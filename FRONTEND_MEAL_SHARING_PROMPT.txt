@@ -1,0 +1,108 @@
+GitHub Copilot Instructions: Request-Based Meal Sharing System
+
+The backend now uses a request-based meal sharing system. Users select a specific family member and send them a meal request. The recipient can accept or decline.
+
+NEW ENDPOINTS TO IMPLEMENT:
+
+1. Send meal share request to a family member
+POST /meal-share-requests
+Send with Authorization Bearer token
+Body needs mealId, recipientUserId, and optional message
+Returns the created request with id, status pending, sender and recipient names
+
+2. Get my pending requests (inbox)
+GET /meal-share-requests/pending
+Returns array of requests sent to me that are still pending
+Each has meal name, sender name, message, created date
+
+3. Get requests I sent
+GET /meal-share-requests/sent
+Returns array of all requests I sent to others
+Shows status pending accepted or declined
+
+4. Get all requests I received
+GET /meal-share-requests/received
+Returns all requests sent to me including pending accepted declined
+
+5. Respond to a request
+POST /meal-share-requests/{request_id}/respond
+Body has action field set to accept or decline
+Only recipient can respond
+Returns updated request with new status
+
+6. Cancel a pending request
+DELETE /meal-share-requests/{request_id}
+Only sender can cancel
+Only works on pending requests
+
+7. Get meals I accepted from others
+GET /meal-share-requests/accepted-meals
+Returns array of meals I accepted and can now view
+
+REMOVED ENDPOINTS:
+
+These no longer exist so remove any code calling them:
+POST /meals/me/{meal_id}/share
+DELETE /meals/me/{meal_id}/share
+GET /meals/family/{family_id}/shared
+
+NEW UI COMPONENTS NEEDED:
+
+1. On meal detail page add Send to Family Member button
+When clicked show modal with list of family members
+User selects a member and optionally adds message
+Call POST /meal-share-requests endpoint
+
+2. Create notifications or inbox page showing pending requests
+Fetch with GET /meal-share-requests/pending
+Show meal thumbnail, meal name, sender name, message, date
+Add Accept and Decline buttons
+When clicked call POST respond endpoint with accept or decline action
+
+3. Create Sent Requests tab showing requests I sent
+Fetch with GET /meal-share-requests/sent
+Show recipient name, meal name, status badge pending accepted declined
+If pending show Cancel button
+When Cancel clicked call DELETE endpoint
+
+4. Create Shared with Me section showing accepted meals
+Fetch with GET /meal-share-requests/accepted-meals
+Display as meal cards just like regular meals
+Mark them as read-only or show Shared by badge with owner name
+User cannot edit these meals but can view and cook them
+
+5. Add notification badge on header or nav
+Show count from GET /meal-share-requests/pending
+Update count when requests are accepted or declined
+
+PERMISSION RULES:
+
+Only meal owner can send share requests for their meal
+Can only send to family members in same family
+Cannot send meal to yourself
+Only recipient can accept or decline
+Only sender can cancel pending requests
+Cannot respond to already responded requests
+Error handling for 403 Forbidden, 404 Not Found, 400 Bad Request
+
+RESPONSE FORMATS:
+
+All requests return objects with these fields:
+id, mealId, senderUserId, recipientUserId, familyId, status, message, createdAt, updatedAt, respondedAt, mealName, senderName, recipientName
+
+Status is one of: pending, accepted, declined
+
+Errors return: error, correlation_id, status_code
+
+UI REQUIREMENTS:
+
+Mobile responsive
+Loading states while sending or responding
+Success messages when request sent accepted declined or cancelled
+Error messages when operations fail
+Real-time or periodic refresh of pending requests count
+Clear visual distinction between pending accepted declined requests
+Read-only indicator on shared meals
+Empty states when no requests or shared meals
+
+Generate TypeScript React components with proper state management error handling and clean modern UI.
