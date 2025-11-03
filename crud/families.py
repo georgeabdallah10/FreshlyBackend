@@ -1,6 +1,6 @@
 # crud/families.py
 import secrets
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from models.family import Family
 from models.membership import FamilyMembership
 from models.user import User
@@ -46,7 +46,16 @@ def join_family_by_code(db: Session, user: User, invite_code: str) -> FamilyMemb
 
 
 def list_members(db: Session, family_id: int) -> list[FamilyMembership]:
-    return db.query(FamilyMembership).filter(FamilyMembership.family_id == family_id).all()
+    """
+    Get all members of a family with their user data eagerly loaded.
+    Returns memberships with nested user objects for proper frontend display.
+    """
+    return (
+        db.query(FamilyMembership)
+        .options(joinedload(FamilyMembership.user))
+        .filter(FamilyMembership.family_id == family_id)
+        .all()
+    )
 
 
 def remove_member(db: Session, family_id: int, user_id: int) -> bool:
