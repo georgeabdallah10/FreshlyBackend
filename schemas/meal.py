@@ -32,6 +32,7 @@ class MealCreate(BaseModel):
     cooking_tools: List[str] = Field(alias="cookingTools")
     notes: str = ""
     is_favorite: bool = Field(alias="isFavorite", default=False)
+    shared_with_family: bool = Field(alias="sharedWithFamily", default=False)
 
     class Config:
         populate_by_name = True

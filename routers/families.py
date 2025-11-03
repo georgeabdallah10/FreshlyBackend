@@ -6,7 +6,11 @@ from core.deps import get_current_user, require_family_role
 from models.user import User
 from schemas.family import FamilyCreate, FamilyOut, JoinByCodeIn
 from schemas.membership import MembershipOut
+from schemas.meal import MealOut
+from schemas.user_preference import UserPreferenceOut
+from schemas.user import UserOut
 from pydantic import BaseModel
+from typing import Optional
 
 # CRUD
 from crud.families import (
@@ -18,6 +22,7 @@ from crud.families import (
     regenerate_invite_code,
     delete_family as crud_delete_family,
 )
+from crud.meals import list_user_all_meals
 
 class ErrorOut(BaseModel):
     detail: str
@@ -130,3 +135,115 @@ def delete_family(
     if not ok:
         raise HTTPException(status_code=404, detail="Family not found")
     return {"ok": True}
+
+
+# Family Owner Dashboard Endpoints - Read-only access to member data
+@router.get(
+    "/{family_id}/members/{user_id}/meals",
+    response_model=list[MealOut],
+    responses={
+        403: {"model": ErrorOut, "description": "Only family owners can access this endpoint"},
+        404: {"model": ErrorOut, "description": "User is not a member of this family"},
+    },
+)
+def get_member_meals(
+    family_id: int,
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_family_role("owner")),
+):
+    """
+    Get all meals created by a specific family member (read-only).
+    Only family owners can access this endpoint.
+    """
+    from models.membership import FamilyMembership
+    
+    # Verify the user is a member of this family
+    membership = db.query(FamilyMembership).filter(
+        FamilyMembership.family_id == family_id,
+        FamilyMembership.user_id == user_id
+    ).first()
+    
+    if not membership:
+        raise HTTPException(status_code=404, detail="User is not a member of this family")
+    
+    return list_user_all_meals(db, user_id)
+
+
+@router.get(
+    "/{family_id}/members/{user_id}/preferences",
+    response_model=UserPreferenceOut,
+    responses={
+        403: {"model": ErrorOut, "description": "Only family owners can access this endpoint"},
+        404: {"model": ErrorOut, "description": "User preferences not found or user is not a member"},
+    },
+)
+def get_member_preferences(
+    family_id: int,
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_family_role("owner")),
+):
+    """
+    Get preferences for a specific family member (read-only).
+    Only family owners can access this endpoint.
+    """
+    from models.membership import FamilyMembership
+    from models.user_preference import UserPreference
+    
+    # Verify the user is a member of this family
+    membership = db.query(FamilyMembership).filter(
+        FamilyMembership.family_id == family_id,
+        FamilyMembership.user_id == user_id
+    ).first()
+    
+    if not membership:
+        raise HTTPException(status_code=404, detail="User is not a member of this family")
+    
+    # Get user preferences
+    preferences = db.query(UserPreference).filter(
+        UserPreference.user_id == user_id
+    ).first()
+    
+    if not preferences:
+        raise HTTPException(status_code=404, detail="User preferences not found")
+    
+    return preferences
+
+
+@router.get(
+    "/{family_id}/members/{user_id}/profile",
+    response_model=UserOut,
+    responses={
+        403: {"model": ErrorOut, "description": "Only family owners can access this endpoint"},
+        404: {"model": ErrorOut, "description": "User not found or not a member of this family"},
+    },
+)
+def get_member_profile(
+    family_id: int,
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_family_role("owner")),
+):
+    """
+    Get profile information for a specific family member (read-only).
+    Only family owners can access this endpoint.
+    """
+    from models.membership import FamilyMembership
+    
+    # Verify the user is a member of this family
+    membership = db.query(FamilyMembership).filter(
+        FamilyMembership.family_id == family_id,
+        FamilyMembership.user_id == user_id
+    ).first()
+    
+    if not membership:
+        raise HTTPException(status_code=404, detail="User is not a member of this family")
+    
+    # Get the user
+    user = db.query(User).filter(User.id == user_id).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return user

@@ -40,6 +40,7 @@ class Meal(Base):
 
     notes = Column(Text, nullable=True, default="")
     is_favorite = Column(Boolean, nullable=False, default=False)
+    shared_with_family = Column(Boolean, nullable=False, default=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
