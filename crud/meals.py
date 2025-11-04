@@ -13,6 +13,7 @@ def get_meal(db: Session, meal_id: int):
 def create_meal(db: Session, data: MealCreate, created_by_user_id: int):
     meal = Meal(
         created_by_user_id=created_by_user_id,
+        family_id=data.family_id,  # Include family_id
         name=data.name,
         image=data.image,
         calories=data.calories,
@@ -40,6 +41,14 @@ def update_meal(db: Session, meal: Meal, data: MealCreate):
     for k, v in data.model_dump(by_alias=False).items():
         setattr(meal, k if k not in ("macros", "ingredients", "cooking_tools","diet_compatibility","goal_fit") else k, v)
     db.add(meal); db.commit(); db.refresh(meal)
+    return meal
+
+def attach_meal_to_family(db: Session, meal: Meal, family_id: int):
+    """Attach an existing meal to a family"""
+    meal.family_id = family_id
+    db.add(meal)
+    db.commit()
+    db.refresh(meal)
     return meal
 
 def delete_meal(db: Session, meal: Meal):

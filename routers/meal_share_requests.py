@@ -44,12 +44,32 @@ def send_meal_share_request(
     
     # Get the meal
     meal = get_meal(db, data.meal_id)
-    if not meal or meal.created_by_user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Meal not found or you don't own this meal")
+    if not meal:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "Meal not found"}
+        )
+    
+    # Verify user owns the meal
+    if meal.created_by_user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "You can only share meals you own"}
+        )
     
     # Check if meal belongs to a family
     if not meal.family_id:
-        raise HTTPException(status_code=400, detail="Meal must belong to a family to be shared")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "Meal must belong to a family to be shared"}
+        )
+    
+    # Check if user is trying to send to themselves
+    if current_user.id == data.recipient_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "You cannot send a share request to yourself"}
+        )
     
     # Check if sender and recipient are in the same family
     sender_membership = db.query(FamilyMembership).filter(
@@ -62,17 +82,25 @@ def send_meal_share_request(
         FamilyMembership.user_id == data.recipient_user_id
     ).first()
     
-    if not sender_membership or not recipient_membership:
-        raise HTTPException(status_code=403, detail="Both users must be members of the same family")
+    if not sender_membership:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "You must be a member of the meal's family to share it"}
+        )
     
-    # Check if user is trying to send to themselves
-    if current_user.id == data.recipient_user_id:
-        raise HTTPException(status_code=400, detail="Cannot send meal request to yourself")
+    if not recipient_membership:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "Recipient must be a member of the meal's family"}
+        )
     
     # Check if a pending request already exists
     existing = check_existing_request(db, data.meal_id, current_user.id, data.recipient_user_id)
     if existing:
-        raise HTTPException(status_code=400, detail="A pending request already exists for this meal and recipient")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "A pending request already exists for this meal and recipient"}
+        )
     
     # Create the request
     request = create_share_request(db, data, current_user.id, meal.family_id)

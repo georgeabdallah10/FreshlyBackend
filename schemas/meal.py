@@ -32,6 +32,7 @@ class MealCreate(BaseModel):
     cooking_tools: List[str] = Field(alias="cookingTools")
     notes: str = ""
     is_favorite: bool = Field(alias="isFavorite", default=False)
+    family_id: int | None = Field(alias="familyId", default=None)  # Optional family ownership
 
     class Config:
         populate_by_name = True
@@ -39,3 +40,9 @@ class MealCreate(BaseModel):
 class MealOut(MealCreate):
     id: int
     created_by_user_id: int = Field(alias="createdByUserId")
+    
+class AttachFamilyRequest(BaseModel):
+    family_id: int = Field(alias="familyId")
+    
+    class Config:
+        populate_by_name = True
