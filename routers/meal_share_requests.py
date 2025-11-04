@@ -102,36 +102,52 @@ def send_meal_share_request(
             detail={"error": "A pending request already exists for this meal and recipient"}
         )
     
-    # Create the request
-    request = create_share_request(db, data, current_user.id, meal.family_id)
+    # Create the request with proper error handling
+    try:
+        request = create_share_request(db, data, current_user.id, meal.family_id)
+    except Exception as e:
+        import traceback
+        print(f"Error creating share request: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": f"Failed to create share request: {str(e)}"}
+        )
     
     # Create notification for the receiver
-    create_meal_share_request_notification(
-        db,
-        receiver_id=data.recipient_user_id,
-        sender_name=current_user.name or current_user.email,
-        meal_name=meal.name,
-        share_request_id=request.id,
-        meal_id=meal.id,
-        sender_id=current_user.id
-    )
+    try:
+        create_meal_share_request_notification(
+            db,
+            receiver_id=data.recipient_user_id,
+            sender_name=current_user.name or current_user.email,
+            meal_name=meal.name,
+            share_request_id=request.id,
+            meal_id=meal.id,
+            sender_id=current_user.id
+        )
+    except Exception as e:
+        # Log notification error but don't fail the request
+        print(f"Warning: Failed to create notification: {str(e)}")
     
-    # Build response with additional data
-    return MealShareRequestOut(
-        id=request.id,
-        mealId=request.meal_id,
-        senderUserId=request.sender_user_id,
-        recipientUserId=request.recipient_user_id,
-        familyId=request.family_id,
-        status=request.status,
-        message=request.message,
-        createdAt=request.created_at,
-        updatedAt=request.updated_at,
-        respondedAt=request.responded_at,
-        mealName=request.meal.name if request.meal else None,
-        senderName=request.sender.name if request.sender else None,
-        recipientName=request.recipient.name if request.recipient else None
-    )
+    # Build response with additional data using from_attributes
+    try:
+        # Create response from the ORM model
+        response = MealShareRequestOut.model_validate(request)
+        
+        # Add nested data
+        response.meal_name = request.meal.name if request.meal else None
+        response.sender_name = request.sender.name if request.sender else None
+        response.recipient_name = request.recipient.name if request.recipient else None
+        
+        return response
+    except Exception as e:
+        import traceback
+        print(f"Error building response: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": f"Failed to build response: {str(e)}"}
+        )
 
 
 @router.get("/pending", response_model=list[MealShareRequestOut])
@@ -142,24 +158,15 @@ def get_my_pending_requests(
     """Get all pending meal share requests sent to me"""
     requests = get_pending_requests_for_user(db, current_user.id)
     
-    return [
-        MealShareRequestOut(
-            id=req.id,
-            mealId=req.meal_id,
-            senderUserId=req.sender_user_id,
-            recipientUserId=req.recipient_user_id,
-            familyId=req.family_id,
-            status=req.status,
-            message=req.message,
-            createdAt=req.created_at,
-            updatedAt=req.updated_at,
-            respondedAt=req.responded_at,
-            mealName=req.meal.name if req.meal else None,
-            senderName=req.sender.name if req.sender else None,
-            recipientName=req.recipient.name if req.recipient else None
-        )
-        for req in requests
-    ]
+    result = []
+    for req in requests:
+        response = MealShareRequestOut.model_validate(req)
+        response.meal_name = req.meal.name if req.meal else None
+        response.sender_name = req.sender.name if req.sender else None
+        response.recipient_name = req.recipient.name if req.recipient else None
+        result.append(response)
+    
+    return result
 
 
 @router.get("/sent", response_model=list[MealShareRequestOut])
@@ -170,24 +177,15 @@ def get_my_sent_requests(
     """Get all meal share requests I've sent"""
     requests = get_sent_requests(db, current_user.id)
     
-    return [
-        MealShareRequestOut(
-            id=req.id,
-            mealId=req.meal_id,
-            senderUserId=req.sender_user_id,
-            recipientUserId=req.recipient_user_id,
-            familyId=req.family_id,
-            status=req.status,
-            message=req.message,
-            createdAt=req.created_at,
-            updatedAt=req.updated_at,
-            respondedAt=req.responded_at,
-            mealName=req.meal.name if req.meal else None,
-            senderName=req.sender.name if req.sender else None,
-            recipientName=req.recipient.name if req.recipient else None
-        )
-        for req in requests
-    ]
+    result = []
+    for req in requests:
+        response = MealShareRequestOut.model_validate(req)
+        response.meal_name = req.meal.name if req.meal else None
+        response.sender_name = req.sender.name if req.sender else None
+        response.recipient_name = req.recipient.name if req.recipient else None
+        result.append(response)
+    
+    return result
 
 
 @router.get("/received", response_model=list[MealShareRequestOut])
@@ -198,24 +196,15 @@ def get_my_received_requests(
     """Get all meal share requests I've received"""
     requests = get_received_requests(db, current_user.id)
     
-    return [
-        MealShareRequestOut(
-            id=req.id,
-            mealId=req.meal_id,
-            senderUserId=req.sender_user_id,
-            recipientUserId=req.recipient_user_id,
-            familyId=req.family_id,
-            status=req.status,
-            message=req.message,
-            createdAt=req.created_at,
-            updatedAt=req.updated_at,
-            respondedAt=req.responded_at,
-            mealName=req.meal.name if req.meal else None,
-            senderName=req.sender.name if req.sender else None,
-            recipientName=req.recipient.name if req.recipient else None
-        )
-        for req in requests
-    ]
+    result = []
+    for req in requests:
+        response = MealShareRequestOut.model_validate(req)
+        response.meal_name = req.meal.name if req.meal else None
+        response.sender_name = req.sender.name if req.sender else None
+        response.recipient_name = req.recipient.name if req.recipient else None
+        result.append(response)
+    
+    return result
 
 
 @router.post("/{request_id}/respond", response_model=MealShareRequestOut)
