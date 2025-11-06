@@ -97,7 +97,7 @@ systemctl status freshly-backend --no-pager | head -15
 
 echo ""
 echo "→ Recent logs:"
-journalctl -u freshly-backend -n 20 --no-pager
+journalctl -u freshly-backend -n 20 --no-pager 
 
 EOF
 
