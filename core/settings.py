@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     
     # Database configuration
     DATABASE_URL: str
+    DATABASE_URL_POOLER: str
     # Note: Pool settings below are not used with NullPool (default for Supabase)
     # NullPool is used to avoid "MaxClientsInSessionMode" errors
     DATABASE_POOL_SIZE: int = 20  # Kept for backward compatibility
