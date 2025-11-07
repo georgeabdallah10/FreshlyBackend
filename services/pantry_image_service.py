@@ -86,7 +86,7 @@ class PantryImageService:
         """
         try:
             # Generate a food-focused prompt for the item
-            prompt = f"A single {item_name}, fresh and appetizing, on a clean white background, professional food photography style, high quality, well-lit"
+            prompt: f"Ultra-realistic studio photograph of fresh ${item_name}, detailed textures, crisp lighting, grocery store display quality, natural colors, 8k resolution, high dynamic range, white seamless background, professional product photography, no watermarks, no text, single subject centered in frame. Nothing else in the picture, just the ${item_name}"
             
             # Generate image using existing chat service
             from schemas.chat import ImageGenerationRequest
