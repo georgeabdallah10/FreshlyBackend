@@ -28,13 +28,39 @@ def upgrade() -> None:
         sa.Column('related_meal_id', sa.Integer, sa.ForeignKey('meals.id', ondelete='SET NULL'), nullable=True),
         sa.Column('related_user_id', sa.Integer, sa.ForeignKey('users.id', ondelete='SET NULL'), nullable=True),
         sa.Column('related_family_id', sa.Integer, sa.ForeignKey('families.id', ondelete='SET NULL'), nullable=True),
-        sa.Column('related_share_request_id', sa.Integer, sa.ForeignKey('meal_share_requests.id', ondelete='SET NULL'), nullable=True),
+        #sa.Column('related_share_request_id', sa.Integer, sa.ForeignKey('meal_share_requests.id', ondelete='SET NULL'), nullable=True),
         sa.Column('is_read', sa.Boolean, nullable=False, server_default=sa.text('false')),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column('read_at', sa.DateTime(timezone=True), nullable=True),
     )
 
+    # Create helpful indexes
+    op.create_index(
+        'ix_notifications_user_unread',
+        'notifications',
+        ['user_id'],
+        postgresql_where=sa.text('is_read = false')
+    )
+    op.create_index(
+        'ix_notifications_created_at',
+        'notifications',
+        ['created_at']
+    )
+
 
 def downgrade() -> None:
-    """Downgrade schema: drop notifications table."""
-    op.drop_table('notifications')
+    """Downgrade schema: drop notifications table and indexes safely."""
+    conn = op.get_bind()
+
+    # Drop indexes if they exist
+    for index_name in ['ix_notifications_created_at', 'ix_notifications_user_unread']:
+        try:
+            conn.execute(sa.text(f'DROP INDEX IF EXISTS {index_name}'))
+        except Exception as e:
+            print(f"⚠️ Skipping missing index {index_name}: {e}")
+
+    # Drop the table if it exists
+    try:
+        conn.execute(sa.text('DROP TABLE IF EXISTS notifications CASCADE'))
+    except Exception as e:
+        print(f"⚠️ Skipping drop table notifications: {e}")
