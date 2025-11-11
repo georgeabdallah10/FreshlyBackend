@@ -2,6 +2,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Literal
 from datetime import datetime
+from schemas.meal import MealOut
 
 
 class MealShareRequestCreate(BaseModel):
@@ -26,11 +27,14 @@ class MealShareRequestOut(BaseModel):
     created_at: datetime = Field(serialization_alias="createdAt")
     updated_at: datetime = Field(serialization_alias="updatedAt")
     responded_at: Optional[datetime] = Field(serialization_alias="respondedAt", default=None)
+    accepted_meal_id: Optional[int] = Field(serialization_alias="acceptedMealId", default=None)
     
     # Nested data
     meal_name: Optional[str] = Field(serialization_alias="mealName", default=None)
     sender_name: Optional[str] = Field(serialization_alias="senderName", default=None)
     recipient_name: Optional[str] = Field(serialization_alias="recipientName", default=None)
+    meal_detail: Optional[MealOut] = Field(serialization_alias="mealDetail", default=None)
+    accepted_meal_detail: Optional[MealOut] = Field(serialization_alias="acceptedMealDetail", default=None)
     
     model_config = {"from_attributes": True, "populate_by_name": True}
 

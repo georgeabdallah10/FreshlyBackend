@@ -40,6 +40,7 @@ class MealCreate(BaseModel):
 class MealOut(MealCreate):
     id: int
     created_by_user_id: int = Field(alias="createdByUserId")
+    model_config = {"from_attributes": True, "populate_by_name": True}
     
 class AttachFamilyRequest(BaseModel):
     family_id: int = Field(alias="familyId")

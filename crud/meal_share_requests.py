@@ -1,26 +1,25 @@
 # crud/meal_share_requests.py
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
 from models.meal_share_request import MealShareRequest
 from models.meal import Meal
-from models.membership import FamilyMembership
 from schemas.meal_share_request import MealShareRequestCreate
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from datetime import datetime
+from copy import deepcopy
 
 
 def create_share_request(
     db: Session,
     data: MealShareRequestCreate,
     sender_user_id: int,
-    family_id: int
+    meal: Meal
 ) -> MealShareRequest:
     """Create a new meal share request"""
     request = MealShareRequest(
-        meal_id=data.meal_id,
+        meal_id=meal.id,
         sender_user_id=sender_user_id,
         recipient_user_id=data.recipient_user_id,
-        family_id=family_id,
+        family_id=meal.family_id,
         message=data.message,
         status="pending"
     )
@@ -57,14 +56,22 @@ def get_received_requests(db: Session, recipient_user_id: int) -> List[MealShare
     ).order_by(MealShareRequest.created_at.desc()).all()
 
 
-def accept_share_request(db: Session, request: MealShareRequest) -> MealShareRequest:
-    """Accept a meal share request"""
+def accept_share_request(db: Session, request: MealShareRequest) -> Tuple[MealShareRequest, Meal]:
+    """Accept a meal share request and clone the meal for the recipient"""
+    meal = request.meal or db.query(Meal).get(request.meal_id)
+    if not meal:
+        raise ValueError("Original meal not found for this share request.")
+    
+    cloned_meal = _clone_meal_for_user(db, meal, request.recipient_user_id)
+    
     request.status = "accepted"
     request.responded_at = datetime.now()
+    request.accepted_meal_id = cloned_meal.id
     db.add(request)
     db.commit()
     db.refresh(request)
-    return request
+    db.refresh(cloned_meal)
+    return request, cloned_meal
 
 
 def decline_share_request(db: Session, request: MealShareRequest) -> MealShareRequest:
@@ -79,16 +86,14 @@ def decline_share_request(db: Session, request: MealShareRequest) -> MealShareRe
 
 def get_accepted_meals_for_user(db: Session, user_id: int) -> List[Meal]:
     """Get all meals that user has accepted from others"""
-    # Get all accepted requests where user is recipient
     accepted_requests = db.query(MealShareRequest).filter(
         MealShareRequest.recipient_user_id == user_id,
-        MealShareRequest.status == "accepted"
+        MealShareRequest.status == "accepted",
+        MealShareRequest.accepted_meal_id.isnot(None)
     ).all()
     
-    # Extract meal IDs
-    meal_ids = [req.meal_id for req in accepted_requests]
+    meal_ids = [req.accepted_meal_id for req in accepted_requests if req.accepted_meal_id]
     
-    # Get the meals
     if not meal_ids:
         return []
     
@@ -114,3 +119,33 @@ def delete_share_request(db: Session, request: MealShareRequest):
     """Delete a share request (cancel)"""
     db.delete(request)
     db.commit()
+
+
+def _clone_meal_for_user(db: Session, meal: Meal, recipient_user_id: int) -> Meal:
+    """Create a copy of the meal for the recipient user."""
+    cloned_meal = Meal(
+        created_by_user_id=recipient_user_id,
+        family_id=None,
+        name=meal.name,
+        image=meal.image,
+        calories=meal.calories,
+        prep_time=meal.prep_time,
+        cook_time=meal.cook_time,
+        total_time=meal.total_time,
+        meal_type=meal.meal_type,
+        cuisine=meal.cuisine,
+        tags=deepcopy(meal.tags) if meal.tags else [],
+        macros=deepcopy(meal.macros) if meal.macros else {},
+        difficulty=meal.difficulty,
+        servings=meal.servings,
+        diet_compatibility=deepcopy(meal.diet_compatibility) if meal.diet_compatibility else [],
+        goal_fit=deepcopy(meal.goal_fit) if meal.goal_fit else [],
+        ingredients=deepcopy(meal.ingredients) if meal.ingredients else [],
+        instructions=deepcopy(meal.instructions) if meal.instructions else [],
+        cooking_tools=deepcopy(meal.cooking_tools) if meal.cooking_tools else [],
+        notes=meal.notes,
+        is_favorite=False  # Newly shared meals should start as non-favorites
+    )
+    db.add(cloned_meal)
+    db.flush()
+    return cloned_meal

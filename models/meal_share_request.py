@@ -14,7 +14,8 @@ class MealShareRequest(Base):
     meal_id = Column(Integer, ForeignKey("meals.id", ondelete="CASCADE"), nullable=False)
     sender_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     recipient_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    family_id = Column(Integer, ForeignKey("families.id", ondelete="CASCADE"), nullable=False)
+    family_id = Column(Integer, ForeignKey("families.id", ondelete="CASCADE"), nullable=True)
+    accepted_meal_id = Column(Integer, ForeignKey("meals.id", ondelete="SET NULL"), nullable=True)
     
     # Request status: pending, accepted, declined
     status = Column(
@@ -32,7 +33,8 @@ class MealShareRequest(Base):
     responded_at = Column(DateTime(timezone=True), nullable=True)
     
     # Relationships
-    meal = relationship("Meal", lazy="selectin")
+    meal = relationship("Meal", foreign_keys=[meal_id], lazy="selectin")
+    accepted_meal = relationship("Meal", foreign_keys=[accepted_meal_id], lazy="selectin", post_update=True)
     sender = relationship("User", foreign_keys=[sender_user_id], lazy="selectin")
     recipient = relationship("User", foreign_keys=[recipient_user_id], lazy="selectin")
     family = relationship("Family", lazy="selectin")

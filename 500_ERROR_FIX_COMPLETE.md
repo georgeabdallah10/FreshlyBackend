@@ -54,7 +54,7 @@ class MealShareRequestOut(BaseModel):
 ```python
 # Create the request with proper error handling
 try:
-    request = create_share_request(db, data, current_user.id, meal.family_id)
+    request = create_share_request(db, data, current_user.id, meal)
 except Exception as e:
     print(f"Error creating share request: {str(e)}")
     raise HTTPException(

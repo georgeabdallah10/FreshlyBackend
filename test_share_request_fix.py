@@ -12,7 +12,7 @@ from models.family import Family
 from models.membership import FamilyMembership
 from models.meal import Meal
 from schemas.meal_share_request import MealShareRequestCreate, MealShareRequestOut
-from crud.meal_share_requests import create_share_request, check_existing_request
+from crud.meal_share_requests import create_share_request, check_existing_request, accept_share_request
 from crud.meals import get_meal
 
 def test_share_request_creation():
@@ -107,7 +107,7 @@ def test_share_request_creation():
         print("\n4. Creating share request...")
         
         try:
-            request = create_share_request(db, share_data, sender.id, meal.family_id)
+            request = create_share_request(db, share_data, sender.id, meal)
             print(f"✅ Share request created (ID: {request.id})")
             print(f"   - meal_id: {request.meal_id}")
             print(f"   - sender_user_id: {request.sender_user_id}")
@@ -149,10 +149,24 @@ def test_share_request_creation():
             print(f"   Keys: {list(response_dict.keys())}")
             
             # Verify camelCase keys
-            expected_keys = ['id', 'mealId', 'senderUserId', 'recipientUserId', 
-                           'familyId', 'status', 'message', 'createdAt', 
-                           'updatedAt', 'respondedAt', 'mealName', 'senderName', 
-                           'recipientName']
+            expected_keys = [
+                'id',
+                'mealId',
+                'senderUserId',
+                'recipientUserId',
+                'familyId',
+                'status',
+                'message',
+                'createdAt',
+                'updatedAt',
+                'respondedAt',
+                'acceptedMealId',
+                'mealName',
+                'senderName',
+                'recipientName',
+                'mealDetail',
+                'acceptedMealDetail'
+            ]
             
             for key in expected_keys:
                 if key in response_dict:
@@ -166,11 +180,18 @@ def test_share_request_creation():
             traceback.print_exc()
             return False
         
+        # Test 6: Accepting the request clones the meal
+        print("\n6. Accepting share request to verify clone creation...")
+        accepted_request, cloned_meal = accept_share_request(db, request)
+        print(f"✅ Request marked as {accepted_request.status} with accepted_meal_id={accepted_request.accepted_meal_id}")
+        print(f"✅ Cloned meal created with ID {cloned_meal.id} for user {cloned_meal.created_by_user_id}")
+        
         # Cleanup
-        print("\n6. Cleanup...")
-        db.delete(request)
+        print("\n7. Cleanup...")
+        db.delete(cloned_meal)
+        db.delete(accepted_request)
         db.commit()
-        print(f"✅ Test share request deleted")
+        print(f"✅ Test share request and cloned meal deleted")
         
         print("\n" + "="*60)
         print("ALL TESTS PASSED! ✅")

@@ -4,8 +4,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.deps import get_current_user
 from models.user import User
-from models.membership import FamilyMembership
-from models.meal import Meal
+from models.meal_share_request import MealShareRequest
 from crud.meal_share_requests import (
     create_share_request,
     get_share_request,
@@ -57,41 +56,11 @@ def send_meal_share_request(
             detail={"error": "You can only share meals you own"}
         )
     
-    # Check if meal belongs to a family
-    if not meal.family_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "Meal must belong to a family to be shared"}
-        )
-    
     # Check if user is trying to send to themselves
     if current_user.id == data.recipient_user_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": "You cannot send a share request to yourself"}
-        )
-    
-    # Check if sender and recipient are in the same family
-    sender_membership = db.query(FamilyMembership).filter(
-        FamilyMembership.family_id == meal.family_id,
-        FamilyMembership.user_id == current_user.id
-    ).first()
-    
-    recipient_membership = db.query(FamilyMembership).filter(
-        FamilyMembership.family_id == meal.family_id,
-        FamilyMembership.user_id == data.recipient_user_id
-    ).first()
-    
-    if not sender_membership:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": "You must be a member of the meal's family to share it"}
-        )
-    
-    if not recipient_membership:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": "Recipient must be a member of the meal's family"}
         )
     
     # Check if a pending request already exists
@@ -104,7 +73,7 @@ def send_meal_share_request(
     
     # Create the request with proper error handling
     try:
-        request = create_share_request(db, data, current_user.id, meal.family_id)
+        request = create_share_request(db, data, current_user.id, meal)
     except Exception as e:
         import traceback
         print(f"Error creating share request: {str(e)}")
@@ -131,15 +100,7 @@ def send_meal_share_request(
     
     # Build response with additional data using from_attributes
     try:
-        # Create response from the ORM model
-        response = MealShareRequestOut.model_validate(request)
-        
-        # Add nested data
-        response.meal_name = request.meal.name if request.meal else None
-        response.sender_name = request.sender.name if request.sender else None
-        response.recipient_name = request.recipient.name if request.recipient else None
-        
-        return response
+        return _build_share_request_response(request)
     except Exception as e:
         import traceback
         print(f"Error building response: {str(e)}")
@@ -157,16 +118,7 @@ def get_my_pending_requests(
 ):
     """Get all pending meal share requests sent to me"""
     requests = get_pending_requests_for_user(db, current_user.id)
-    
-    result = []
-    for req in requests:
-        response = MealShareRequestOut.model_validate(req)
-        response.meal_name = req.meal.name if req.meal else None
-        response.sender_name = req.sender.name if req.sender else None
-        response.recipient_name = req.recipient.name if req.recipient else None
-        result.append(response)
-    
-    return result
+    return [_build_share_request_response(req) for req in requests]
 
 
 @router.get("/sent", response_model=list[MealShareRequestOut])
@@ -176,16 +128,7 @@ def get_my_sent_requests(
 ):
     """Get all meal share requests I've sent"""
     requests = get_sent_requests(db, current_user.id)
-    
-    result = []
-    for req in requests:
-        response = MealShareRequestOut.model_validate(req)
-        response.meal_name = req.meal.name if req.meal else None
-        response.sender_name = req.sender.name if req.sender else None
-        response.recipient_name = req.recipient.name if req.recipient else None
-        result.append(response)
-    
-    return result
+    return [_build_share_request_response(req) for req in requests]
 
 
 @router.get("/received", response_model=list[MealShareRequestOut])
@@ -195,16 +138,7 @@ def get_my_received_requests(
 ):
     """Get all meal share requests I've received"""
     requests = get_received_requests(db, current_user.id)
-    
-    result = []
-    for req in requests:
-        response = MealShareRequestOut.model_validate(req)
-        response.meal_name = req.meal.name if req.meal else None
-        response.sender_name = req.sender.name if req.sender else None
-        response.recipient_name = req.recipient.name if req.recipient else None
-        result.append(response)
-    
-    return result
+    return [_build_share_request_response(req) for req in requests]
 
 
 @router.post("/{request_id}/respond", response_model=MealShareRequestOut)
@@ -231,7 +165,7 @@ def respond_to_share_request(
     
     # Accept or decline
     if response.action == "accept":
-        updated_request = accept_share_request(db, share_request)
+        updated_request, _ = accept_share_request(db, share_request)
         # Create notification for sender
         create_meal_share_accepted_notification(
             db,
@@ -255,21 +189,7 @@ def respond_to_share_request(
             receiver_id=current_user.id
         )
     
-    return MealShareRequestOut(
-        id=updated_request.id,
-        mealId=updated_request.meal_id,
-        senderUserId=updated_request.sender_user_id,
-        recipientUserId=updated_request.recipient_user_id,
-        familyId=updated_request.family_id,
-        status=updated_request.status,
-        message=updated_request.message,
-        createdAt=updated_request.created_at,
-        updatedAt=updated_request.updated_at,
-        respondedAt=updated_request.responded_at,
-        mealName=updated_request.meal.name if updated_request.meal else None,
-        senderName=updated_request.sender.name if updated_request.sender else None,
-        recipientName=updated_request.recipient.name if updated_request.recipient else None
-    )
+    return _build_share_request_response(updated_request)
 
 
 @router.delete("/{request_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -305,3 +225,25 @@ def get_my_accepted_meals(
     """Get all meals that I've accepted from others"""
     meals = get_accepted_meals_for_user(db, current_user.id)
     return meals
+
+
+def _build_share_request_response(request: MealShareRequest) -> MealShareRequestOut:
+    """Compose the API response for a share request with nested details."""
+    response = MealShareRequestOut.model_validate(request)
+    response.meal_name = request.meal.name if request.meal else None
+    response.sender_name = request.sender.name if request.sender else None
+    response.recipient_name = request.recipient.name if request.recipient else None
+    
+    if request.meal:
+        try:
+            response.meal_detail = MealOut.model_validate(request.meal)
+        except Exception:
+            response.meal_detail = None
+    
+    if request.accepted_meal:
+        try:
+            response.accepted_meal_detail = MealOut.model_validate(request.accepted_meal)
+        except Exception:
+            response.accepted_meal_detail = None
+    
+    return response

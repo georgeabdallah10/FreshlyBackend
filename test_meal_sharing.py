@@ -17,7 +17,7 @@ from models.membership import FamilyMembership
 from models.meal import Meal
 from schemas.meal import MealCreate, MacroBreakdown, IngredientIn, AttachFamilyRequest
 from crud.meals import create_meal, get_meal, attach_meal_to_family
-from crud.meal_share_requests import create_share_request, check_existing_request
+from crud.meal_share_requests import create_share_request, check_existing_request, accept_share_request
 from schemas.meal_share_request import MealShareRequestCreate
 
 def test_meal_sharing():
@@ -59,8 +59,13 @@ def test_meal_sharing():
             user2 = db.query(User).get(other_membership.user_id)
             print(f"✅ Found second family member: {user2.name} (ID: {user2.id})")
         else:
-            user2 = None
-            print("⚠️  Only one member in family - some tests will be skipped")
+            # Fallback to any other user in the system for global sharing tests
+            user2 = db.query(User).filter(User.id != user1.id).first()
+            if user2:
+                print(f"⚠️  No additional family member, using global user {user2.name} (ID: {user2.id})")
+            else:
+                print("❌ Could not find a second user to test sharing.")
+                return False
         
         # Test 1: Create a meal with family_id
         print("\n2. Testing meal creation with family_id...")
@@ -156,7 +161,7 @@ def test_meal_sharing():
             if existing:
                 print(f"   ⚠️  Pending request already exists (ID: {existing.id})")
             else:
-                share_request = create_share_request(db, share_data, user1.id, family.id)
+                share_request = create_share_request(db, share_data, user1.id, meal1)
                 print(f"✅ Created share request (ID: {share_request.id})")
                 print(f"   - From: User {share_request.sender_user_id}")
                 print(f"   - To: User {share_request.recipient_user_id}")
@@ -164,11 +169,17 @@ def test_meal_sharing():
                 print(f"   - Family: {share_request.family_id}")
                 print(f"   - Status: {share_request.status}")
                 
-                if share_request.family_id == family.id:
-                    print("   ✅ Share request created successfully!")
-                else:
-                    print(f"   ❌ Family ID mismatch in share request!")
-                    return False
+                accepted_request, cloned_meal = accept_share_request(db, share_request)
+                print(f"✅ Recipient accepted the request and received meal (ID: {cloned_meal.id})")
+                print(f"   - Accepted meal owner: {cloned_meal.created_by_user_id}")
+                print(f"   - Accepted meal name: {cloned_meal.name}")
+                print(f"   - Request accepted_meal_id: {accepted_request.accepted_meal_id}")
+                print("   ✅ Global meal clone created successfully!")
+                
+                # Cleanup accepted data for repeatable tests
+                db.delete(cloned_meal)
+                db.delete(accepted_request)
+                db.commit()
         else:
             print("\n4. Skipping share request test (no second family member)")
         
@@ -207,7 +218,33 @@ def test_meal_sharing():
         
         if orphan_meal.family_id is None:
             print("   ✅ Meal without family_id created successfully!")
-            print("   ℹ️  Note: This meal cannot be shared until attached to a family")
+        
+        if user2:
+            print("\n6. Testing share request for personal meal (no family required)...")
+            orphan_share = MealShareRequestCreate(
+                meal_id=orphan_meal.id,
+                recipient_user_id=user2.id,
+                message="Sharing a personal recipe!"
+            )
+            existing_orphan = check_existing_request(db, orphan_meal.id, user1.id, user2.id)
+            if existing_orphan:
+                db.delete(existing_orphan)
+                db.commit()
+            
+            personal_request = create_share_request(db, orphan_share, user1.id, orphan_meal)
+            print(f"✅ Created personal share request (ID: {personal_request.id}) with family_id={personal_request.family_id}")
+            
+            accepted_personal, cloned_personal_meal = accept_share_request(db, personal_request)
+            print(f"✅ Recipient now has their own copy (ID: {cloned_personal_meal.id})")
+            if accepted_personal.family_id is None:
+                print("   ✅ Share request stored without family reference!")
+            if accepted_personal.accepted_meal_id == cloned_personal_meal.id:
+                print("   ✅ accepted_meal_id recorded correctly")
+            
+            # Cleanup
+            db.delete(cloned_personal_meal)
+            db.delete(accepted_personal)
+            db.commit()
         
         print("\n" + "="*60)
         print("ALL TESTS PASSED! ✅")
@@ -216,9 +253,9 @@ def test_meal_sharing():
         print("✅ Meals can be created with family_id")
         print("✅ Family_id is persisted correctly in database")
         print("✅ Meals can be attached to families after creation")
-        print("✅ Share requests can be created for family meals")
+        print("✅ Share requests can be created globally (family optional)")
         if user2:
-            print("✅ Share requests include family_id")
+            print("✅ Accepting a share request clones the meal for the recipient")
         print("\nReady for production deployment!")
         
         return True

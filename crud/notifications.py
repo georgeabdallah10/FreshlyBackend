@@ -182,7 +182,7 @@ def create_meal_share_accepted_notification(
         userId=sender_id,
         type="meal_share_accepted",
         title="Meal Share Accepted",
-        message=f"{receiver_name} accepted your meal '{meal_name}'",
+        message=f"{receiver_name} accepted your meal '{meal_name}' and now has their own copy.",
         relatedMealId=meal_id,
         relatedUserId=receiver_id,
         relatedShareRequestId=share_request_id
