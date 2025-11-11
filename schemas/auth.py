@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, ConfigDict, Field
-from typing import Optional
+from typing import Optional, Literal
 from .user_preference import UserPreferenceCreate
 
 class RegisterIn(BaseModel):
@@ -25,3 +25,16 @@ class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
     model_config = ConfigDict(from_attributes=True)
+
+
+class OAuthUserOut(BaseModel):
+    id: int
+    email: EmailStr
+    username: str
+    auth_provider: Literal["google", "apple"]
+
+
+class OAuthSignupOut(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    user: OAuthUserOut

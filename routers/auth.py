@@ -1,5 +1,5 @@
 # routers/auth.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header, status
 from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel, EmailStr
 
@@ -8,7 +8,7 @@ from core.deps import get_current_user
 from core.security import create_access_token, hash_password,decode_token
 
 from models.user import User
-from schemas.auth import RegisterIn, LoginIn, TokenOut
+from schemas.auth import RegisterIn, LoginIn, TokenOut, OAuthSignupOut
 from schemas.user import UserOut
 from schemas.user_preference import UserPreferenceCreate
 
@@ -19,6 +19,7 @@ import random
 from fastapi import APIRouter, HTTPException
 from core.email_utils import send_verification_email, send_password_reset_code
 from datetime import datetime, timedelta, timezone
+from services.oauth_signup import OAuthSignupService
 
 
 class ErrorOut(BaseModel):
@@ -88,6 +89,39 @@ def login(data: LoginIn, db: Session = Depends(get_db)):
     #     raise HTTPException(status_code=403, detail="Please verify your email before logging in.")
     # issue JWT
     return TokenOut(access_token=create_access_token(sub=str(user.id)))
+
+
+@router.post(
+    "/signup/oauth",
+    response_model=OAuthSignupOut,
+    responses={
+        401: {"model": ErrorOut, "description": "Invalid or expired token"},
+        409: {"model": ErrorOut, "description": "User already exists"},
+    },
+)
+async def signup_oauth(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db: Session = Depends(get_db),
+):
+    """Register a new user using a Supabase-issued OAuth token."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+    supabase_token = authorization.split(" ", 1)[1].strip()
+    if not supabase_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+
+    user, provider, username = await OAuthSignupService.register(db, supabase_token)
+    access_token = OAuthSignupService.issue_access_token(user)
+
+    return OAuthSignupOut(
+        access_token=access_token,
+        user={
+            "id": user.id,
+            "email": user.email,
+            "username": username,
+            "auth_provider": provider,
+        },
+    )
 
 
 @router.get(
