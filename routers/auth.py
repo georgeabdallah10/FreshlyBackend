@@ -92,6 +92,40 @@ def login(data: LoginIn, db: Session = Depends(get_db)):
 
 
 @router.post(
+    "/login/oauth",
+    response_model=OAuthSignupOut,
+    responses={
+        400: {"model": ErrorOut, "description": "Authentication provider mismatch."},
+        401: {"model": ErrorOut, "description": "Invalid or expired token"},
+        404: {"model": ErrorOut, "description": "User not registered"},
+    },
+)
+async def login_oauth(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db: Session = Depends(get_db),
+):
+    """Authenticate an existing Supabase OAuth user."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+    supabase_token = authorization.split(" ", 1)[1].strip()
+    if not supabase_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+
+    user, provider, username = await OAuthSignupService.authenticate(db, supabase_token)
+    access_token = OAuthSignupService.issue_access_token(user)
+
+    return OAuthSignupOut(
+        access_token=access_token,
+        user={
+            "id": user.id,
+            "email": user.email,
+            "username": username,
+            "auth_provider": provider,
+        },
+    )
+
+
+@router.post(
     "/signup/oauth",
     response_model=OAuthSignupOut,
     responses={

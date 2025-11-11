@@ -5,6 +5,7 @@ from typing import Tuple
 
 import httpx
 from fastapi import HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -105,6 +106,61 @@ class OAuthSignupService:
     def issue_access_token(user: User) -> str:
         """Create a JWT using the shared helper."""
         return create_access_token(sub=str(user.id), extra={"email": user.email})
+
+    @classmethod
+    async def authenticate(
+        cls,
+        db: Session,
+        supabase_jwt: str,
+    ) -> Tuple[User, str, str]:
+        """Validate a Supabase token and return the linked user."""
+        identity = await cls._fetch_supabase_identity(supabase_jwt)
+        email = identity.get("email")
+        if not email:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+
+        provider = (identity.get("app_metadata") or {}).get("provider")
+        provider = (provider or "").lower()
+        if provider not in cls._SUPPORTED_PROVIDERS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported OAuth provider")
+
+        supabase_user_id = identity.get("id")
+        if not supabase_user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+
+        oauth_account = (
+            db.query(OAuthAccount)
+            .filter(
+                or_(
+                    OAuthAccount.email == email,
+                    OAuthAccount.supabase_user_id == supabase_user_id,
+                )
+            )
+            .first()
+        )
+
+        if not oauth_account:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not registered. Please sign up first.",
+            )
+
+        if oauth_account.provider != provider:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Authentication provider mismatch.",
+            )
+
+        user = db.query(User).get(oauth_account.user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not registered. Please sign up first.",
+            )
+
+        username = oauth_account.username or (user.name or email.split("@", 1)[0])
+        logger.info("[AuthService] %s user logged in: %s", provider.title(), email)
+        return user, provider, username
 
     @classmethod
     async def _fetch_supabase_identity(cls, supabase_jwt: str) -> dict:
