@@ -21,7 +21,7 @@ class MealShareRequestOut(BaseModel):
     meal_id: int = Field(serialization_alias="mealId")
     sender_user_id: int = Field(serialization_alias="senderUserId")
     recipient_user_id: int = Field(serialization_alias="recipientUserId")
-    family_id: int = Field(serialization_alias="familyId")
+    family_id: Optional[int] = Field(serialization_alias="familyId", default=None)
     status: Literal["pending", "accepted", "declined"]
     message: Optional[str] = None
     created_at: datetime = Field(serialization_alias="createdAt")
