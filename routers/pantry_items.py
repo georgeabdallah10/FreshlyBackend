@@ -109,6 +109,7 @@ async def create_one_item(
         _ensure_member(db, current_user.id, data.family_id)
         created = create_pantry_item(
             db,
+            owner_user_id=None,
             family_id=data.family_id,
             ingredient_id=ingredient_id,
             quantity=data.quantity,
