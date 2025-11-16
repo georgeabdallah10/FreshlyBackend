@@ -18,6 +18,7 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     avatar_path = Column(String, nullable=True)
     status = Column(sa.String(50), nullable=False, server_default="active")
+    gender = Column(String(32), nullable=True)
     age = Column(Integer, nullable=True)
     weight = Column(Float, nullable=True)
     height = Column(Float, nullable=True)

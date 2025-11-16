@@ -12,11 +12,12 @@ class UserUpdate(BaseModel):
     location: Optional[str] = None
     status: Optional[str] = None
     avatar_path: Optional[str] = None
+    gender: Optional[str] = Field(None, min_length=1, max_length=32)
     age: Optional[int] = Field(None, ge=0)
     weight: Optional[float] = Field(None, gt=0)
     height: Optional[float] = Field(None, gt=0)
 
-    @field_validator("name", "phone_number", "location", "status", "avatar_path")
+    @field_validator("name", "phone_number", "location", "status", "avatar_path", "gender")
     @classmethod
     def _strip(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
@@ -32,6 +33,7 @@ class UserOut(BaseModel):
     location: Optional[str] = None
     status: Optional[str] = "user"
     avatar_path: Optional[str] = None
+    gender: Optional[str] = None
     age: Optional[int] = None
     weight: Optional[float] = None
     height: Optional[float] = None
