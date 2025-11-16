@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Text, DateTime, func, Boolean, String, text
+from sqlalchemy import Column, Integer, Text, DateTime, func, Boolean, String, text, Float
 from datetime import datetime, timezone
 from sqlalchemy.orm import relationship
 import sqlalchemy as sa
@@ -18,6 +18,9 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     avatar_path = Column(String, nullable=True)
     status = Column(sa.String(50), nullable=False, server_default="active")
+    age = Column(Integer, nullable=True)
+    weight = Column(Float, nullable=True)
+    height = Column(Float, nullable=True)
     
     password_reset_code = Column(String(6), nullable=True, index=True)
     password_reset_expires_at = Column(DateTime(timezone=True), nullable=True)
