@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from core.security import create_access_token, hash_password
 from core.settings import settings
 from crud.auth import get_user_by_email
+from crud.user_preferences import create_user_preference
 from models.oauth_account import OAuthAccount
 from models.user import User
 
@@ -88,6 +89,18 @@ class OAuthSignupService:
             db.flush()  # Ensure user ID for FK
             oauth_account.user_id = user.id
             db.add(oauth_account)
+
+            # Create default UserPreference for OAuth users (same as regular signup)
+            create_user_preference(
+                db,
+                user_id=user.id,
+                allergen_ingredient_ids=[],
+                diet_codes=[],
+                disliked_ingredient_ids=[],
+                goal="balanced",
+                calorie_target=2000
+            )
+
             db.commit()
             db.refresh(user)
         except IntegrityError as exc:

@@ -114,6 +114,14 @@ async def login_oauth(
     user, provider, username = await OAuthSignupService.authenticate(db, supabase_token)
     access_token = OAuthSignupService.issue_access_token(user)
 
+    # Reload user with relationships for complete response
+    user = (
+        db.query(User)
+        .options(selectinload(User.preference))
+        .filter(User.id == user.id)
+        .first()
+    )
+
     return OAuthSignupOut(
         access_token=access_token,
         user={
@@ -146,6 +154,14 @@ async def signup_oauth(
 
     user, provider, username = await OAuthSignupService.register(db, supabase_token)
     access_token = OAuthSignupService.issue_access_token(user)
+
+    # Reload user with relationships for complete response
+    user = (
+        db.query(User)
+        .options(selectinload(User.preference))
+        .filter(User.id == user.id)
+        .first()
+    )
 
     return OAuthSignupOut(
         access_token=access_token,
