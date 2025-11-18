@@ -12,3 +12,7 @@ class MembershipOut(BaseModel):
     role: str = Field(pattern="^(owner|admin|member)$")
     joined_at: Optional[datetime] = None
     user: Optional[UserOut] = None  # Nested user object
+
+
+class MembershipRoleUpdate(BaseModel):
+    role: str = Field(pattern="^(owner|admin|member)$")

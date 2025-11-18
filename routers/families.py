@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.deps import get_current_user, require_family_role
 from models.user import User
+from models.membership import FamilyMembership
 from schemas.family import FamilyCreate, FamilyOut, JoinByCodeIn
-from schemas.membership import MembershipOut
+from schemas.membership import MembershipOut, MembershipRoleUpdate
 from schemas.meal import MealOut
 from schemas.user_preference import UserPreferenceOut
 from schemas.user import UserOut
@@ -94,9 +95,33 @@ def remove_member(
     db: Session = Depends(get_db),
     _: User = Depends(require_family_role("admin")),
 ):
-    ok = crud_remove_member(db, family_id, user_id)
-    if not ok:
+    membership = (
+        db.query(FamilyMembership)
+        .filter(
+            FamilyMembership.family_id == family_id,
+            FamilyMembership.user_id == user_id,
+        )
+        .first()
+    )
+    if not membership:
         raise HTTPException(status_code=404, detail="Not a member")
+
+    if membership.role == "owner":
+        owner_count = (
+            db.query(FamilyMembership)
+            .filter(
+                FamilyMembership.family_id == family_id,
+                FamilyMembership.role == "owner",
+            )
+            .count()
+        )
+        if owner_count <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Family must retain at least one owner",
+            )
+
+    crud_remove_member(db, family_id, user_id)
     return {"ok": True}
 
 
@@ -137,6 +162,76 @@ def delete_family(
     return {"ok": True}
 
 
+@router.patch(
+    "/{family_id}/members/{user_id}/role",
+    response_model=MembershipOut,
+    responses={
+        400: {"model": ErrorOut, "description": "Invalid role transition"},
+        404: {"model": ErrorOut, "description": "Not a member"},
+        403: {"model": ErrorOut, "description": "Insufficient permissions"},
+    },
+)
+def update_member_role(
+    family_id: int,
+    user_id: int,
+    data: MembershipRoleUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_family_role("admin")),
+):
+    membership = (
+        db.query(FamilyMembership)
+        .filter(
+            FamilyMembership.family_id == family_id,
+            FamilyMembership.user_id == user_id,
+        )
+        .first()
+    )
+    if not membership:
+        raise HTTPException(status_code=404, detail="Not a member")
+
+    if membership.role == data.role:
+        return membership
+
+    actor_membership = (
+        db.query(FamilyMembership)
+        .filter(
+            FamilyMembership.family_id == family_id,
+            FamilyMembership.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not actor_membership:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    if actor_membership.role == "admin":
+        if membership.role == "owner" or data.role == "owner":
+            raise HTTPException(
+                status_code=403,
+                detail="Admins cannot modify owners or assign owner role",
+            )
+
+    if membership.role == "owner" and data.role != "owner":
+        owner_count = (
+            db.query(FamilyMembership)
+            .filter(
+                FamilyMembership.family_id == family_id,
+                FamilyMembership.role == "owner",
+            )
+            .count()
+        )
+        if owner_count <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Family must retain at least one owner",
+            )
+
+    membership.role = data.role
+    db.add(membership)
+    db.commit()
+    db.refresh(membership)
+    return membership
+
+
 # Family Owner Dashboard Endpoints - Read-only access to member data
 @router.get(
     "/{family_id}/members/{user_id}/meals",
@@ -156,8 +251,6 @@ def get_member_meals(
     Get all meals created by a specific family member (read-only).
     Only family owners can access this endpoint.
     """
-    from models.membership import FamilyMembership
-    
     # Verify the user is a member of this family
     membership = db.query(FamilyMembership).filter(
         FamilyMembership.family_id == family_id,
@@ -188,7 +281,6 @@ def get_member_preferences(
     Get preferences for a specific family member (read-only).
     Only family owners can access this endpoint.
     """
-    from models.membership import FamilyMembership
     from models.user_preference import UserPreference
     
     # Verify the user is a member of this family
@@ -229,8 +321,6 @@ def get_member_profile(
     Get profile information for a specific family member (read-only).
     Only family owners can access this endpoint.
     """
-    from models.membership import FamilyMembership
-    
     # Verify the user is a member of this family
     membership = db.query(FamilyMembership).filter(
         FamilyMembership.family_id == family_id,
