@@ -17,16 +17,20 @@ def create_family(db: Session, display_name: str, owner: User) -> Family:
     db.add(FamilyMembership(family_id=fam.id, user_id=owner.id, role="owner"))
     db.commit()
     db.refresh(fam)
+    fam.count = len(fam.memberships)
     return fam
 
 
 def list_user_families(db: Session, user: User) -> list[Family]:
-    return (
+    families = (
         db.query(Family)
         .join(FamilyMembership, FamilyMembership.family_id == Family.id)
         .filter(FamilyMembership.user_id == user.id)
         .all()
     )
+    for fam in families:
+        fam.count = len(fam.memberships)
+    return families
 
 
 def join_family_by_code(db: Session, user: User, invite_code: str) -> FamilyMembership | None:
@@ -76,6 +80,7 @@ def regenerate_invite_code(db: Session, family_id: int) -> Family | None:
     db.add(fam)
     db.commit()
     db.refresh(fam)
+    fam.count = len(fam.memberships)
     return fam
 
 

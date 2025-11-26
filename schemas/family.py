@@ -7,6 +7,7 @@ class FamilyOut(BaseModel):
     id: int
     display_name: str
     invite_code: str
+    count: int
     class Config: from_attributes = True
 
 class JoinByCodeIn(BaseModel):
