@@ -73,14 +73,11 @@ class ImageGenerationRequest(BaseModel):
     size: Literal["256x256", "512x512", "1024x1024", "1792x1024", "1024x1792"] = "1024x1024"
     quality: Literal["standard", "hd"] = "standard"
     style: Literal["vivid", "natural"] = "vivid"
-    conversation_id: Optional[int] = None
 
 
 class ImageGenerationResponse(BaseModel):
     image_url: str
     prompt: str
-    conversation_id: int
-    message_id: int
 
 
 # Grocery item schemas for image scanning

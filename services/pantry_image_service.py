@@ -98,7 +98,7 @@ class PantryImageService:
                 style="natural"
             )
             
-            # Generate image (this will create a conversation, but that's okay for tracking)
+            # Generate image (pure utility endpoint - no conversation tracking)
             result = await chat_service.generate_image(db, user, image_request)
             
             # Download the generated image

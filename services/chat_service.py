@@ -260,33 +260,20 @@ class ChatService:
         return conversation
 
     async def generate_image(
-        self, 
-        db: Session, 
-        user: User, 
+        self,
+        db: Session,
+        user: User,
         request: ImageGenerationRequest
     ) -> ImageGenerationResponse:
-        """Generate an image using OpenAI's DALL-E"""
+        """Generate an image using OpenAI's DALL-E - pure utility endpoint with no conversation tracking"""
         self._check_api_availability()
-        
-        # Get or create conversation
-        conversation_id = request.conversation_id
-        if not conversation_id:
-            conversation = chat_crud.create_conversation(
-                db, user.id, f"Image: {request.prompt[:50]}..."
-            )
-            conversation_id = conversation.id
-        
-        # Save user's request as a message
-        user_message = chat_crud.add_message(
-            db, conversation_id, "user", f"Generate image: {request.prompt}"
-        )
-        
+
         try:
             headers = {
                 "Authorization": f"Bearer {self.openai_api_key}",
                 "Content-Type": "application/json"
             }
-            
+
             payload = {
                 "model": "dall-e-3",  # Use DALL-E 3 for best quality
                 "prompt": request.prompt,
@@ -295,14 +282,14 @@ class ChatService:
                 "style": request.style,
                 "n": 1  # Generate 1 image
             }
-            
+
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
                     self.openai_image_url,
                     headers=headers,
                     json=payload
                 )
-                
+
             if response.status_code != 200:
                 error_text = response.text
                 logger.error(f"OpenAI Image API error: {response.status_code} - {error_text}")
@@ -310,23 +297,15 @@ class ChatService:
                     status_code=response.status_code,
                     detail=f"Image generation failed: {error_text}"
                 )
-                
+
             result = response.json()
             image_url = result["data"][0]["url"]
-            
-            # Save AI response as a message
-            ai_message = chat_crud.add_message(
-                db, conversation_id, "assistant", 
-                f"Generated image for: {request.prompt}\nImage URL: {image_url}"
-            )
-            
+
             return ImageGenerationResponse(
                 image_url=image_url,
-                prompt=request.prompt,
-                conversation_id=conversation_id,
-                message_id=ai_message.id
+                prompt=request.prompt
             )
-            
+
         except httpx.RequestError as e:
             logger.error(f"Request error during image generation: {e}")
             raise HTTPException(status_code=503, detail="Image generation service unavailable")
