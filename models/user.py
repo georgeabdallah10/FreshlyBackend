@@ -22,6 +22,7 @@ class User(Base):
     age = Column(Integer, nullable=True)
     weight = Column(Float, nullable=True)
     height = Column(Float, nullable=True)
+    calories = Column(Float, nullable=True)
     
     password_reset_code = Column(String(6), nullable=True, index=True)
     password_reset_expires_at = Column(DateTime(timezone=True), nullable=True)

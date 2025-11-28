@@ -11,7 +11,7 @@ def get_user_by_id(db: Session, user_id: int) -> User | None:
 
 def update_user_info(db: Session, user: User, name: str | None = None, **fields) -> User:
     # Allowlist of columns that can be updated via this helper
-    allowed_fields = {"name", "email", "phone_number", "location", "avatar_path", "gender", "age", "weight", "height"}
+    allowed_fields = {"name", "email", "phone_number", "location", "avatar_path", "gender", "age", "weight", "height", "calories"}
     changed = False
 
     # Collect updates: include `name` if provided, then any extra kwargs

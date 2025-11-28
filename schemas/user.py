@@ -16,6 +16,7 @@ class UserUpdate(BaseModel):
     age: Optional[int] = Field(None, ge=0)
     weight: Optional[float] = Field(None, gt=0)
     height: Optional[float] = Field(None, gt=0)
+    calories: Optional[float] = Field(None, gt=0)
 
     @field_validator("name", "phone_number", "location", "status", "avatar_path", "gender")
     @classmethod
@@ -37,6 +38,7 @@ class UserOut(BaseModel):
     age: Optional[int] = None
     weight: Optional[float] = None
     height: Optional[float] = None
+    calories: Optional[float] = None
     created_at: datetime
     updated_at: datetime
     
