@@ -1,8 +1,9 @@
 # models/meal_share_request.py
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from core.db import Base
+import sqlalchemy as sa
 
 
 class MealShareRequest(Base):
@@ -19,7 +20,13 @@ class MealShareRequest(Base):
     
     # Request status: pending, accepted, declined
     status = Column(
-        Enum("pending", "accepted", "declined", name="meal_share_request_status"),
+        sa.Enum(
+            "pending",
+            "accepted",
+            "declined",
+            name="meal_share_request_status",
+            create_type=False       # <---- CRUCIAL FIX
+        ),
         nullable=False,
         default="pending"
     )
