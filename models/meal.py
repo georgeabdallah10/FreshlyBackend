@@ -16,7 +16,7 @@ class Meal(Base):
     created_by = relationship("User", back_populates="meals_created", lazy="selectin")
 
     name = Column(String(255), nullable=False)
-    image = Column(String(32), nullable=True)
+    image = Column(Text, nullable=True)
     calories = Column(Integer, nullable=False)
 
     prep_time = Column(Integer, nullable=True)
