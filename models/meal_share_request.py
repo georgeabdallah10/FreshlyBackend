@@ -28,6 +28,7 @@ class MealShareRequest(Base):
             create_type=False       # <---- CRUCIAL FIX
         ),
         nullable=False,
+        create_type=False,
         default="pending"
     )
     
