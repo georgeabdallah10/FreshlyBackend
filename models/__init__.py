@@ -31,3 +31,7 @@ from .user_preference import UserPreference  # noqa: F401
 # Chat
 from .chat import ChatConversation, ChatMessage  # noqa: F401
 from .oauth_account import OAuthAccount  # noqa: F401
+
+from .notification import Notification
+from .meal_share_request import MealShareRequest
+
