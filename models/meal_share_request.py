@@ -4,6 +4,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from core.db import Base
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import ENUM
 
 
 class MealShareRequest(Base):
@@ -20,7 +21,7 @@ class MealShareRequest(Base):
     
     # Request status: pending, accepted, declined
     status = Column(
-        sa.Enum(
+        ENUM(
             "pending",
             "accepted",
             "declined",
