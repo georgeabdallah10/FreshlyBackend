@@ -7,8 +7,6 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.base import BaseHTTPMiddleware
 import jwt
 import logging
-import time
-from collections import defaultdict, deque
 
 logger = logging.getLogger(__name__)
 
@@ -29,57 +27,6 @@ def create_access_token(sub: str, extra: dict | None = None) -> str:
 
 def decode_token(token: str) -> dict:
     return jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALG])
-
-class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Rate limiting middleware with different limits for different endpoints"""
-    
-    def __init__(self, app, default_requests: int = 100, window_seconds: int = 60):
-        super().__init__(app)
-        self.default_requests = default_requests
-        self.window_seconds = window_seconds
-        # Store request timestamps for each IP
-        self.requests: Dict[str, deque] = defaultdict(lambda: deque())
-        
-        # Different limits for different endpoint types
-        self.endpoint_limits = {
-            '/api/v1/auth/': 10,      # Strict for auth endpoints
-            '/api/v1/chat/legacy': 20, # Moderate for AI endpoints
-            '/api/v1/chat': 50,        # Higher for authenticated chat
-        }
-
-    async def dispatch(self, request: Request, call_next):
-        # Get client IP
-        client_ip = request.client.host
-        current_time = time.time()
-        
-        # Determine rate limit for this endpoint
-        rate_limit = self._get_rate_limit_for_path(request.url.path)
-        
-        # Clean old requests outside the window
-        while (self.requests[client_ip] and 
-               current_time - self.requests[client_ip][0] > self.window_seconds):
-            self.requests[client_ip].popleft()
-        
-        # Check if rate limit exceeded
-        if len(self.requests[client_ip]) >= rate_limit:
-            logger.warning(f"Rate limit exceeded for IP {client_ip} on {request.url.path}")
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Rate limit exceeded. Max {rate_limit} requests per {self.window_seconds} seconds"
-            )
-        
-        # Add current request
-        self.requests[client_ip].append(current_time)
-        
-        response = await call_next(request)
-        return response
-
-    def _get_rate_limit_for_path(self, path: str) -> int:
-        """Get rate limit based on endpoint path"""
-        for endpoint_prefix, limit in self.endpoint_limits.items():
-            if path.startswith(endpoint_prefix):
-                return limit
-        return self.default_requests
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

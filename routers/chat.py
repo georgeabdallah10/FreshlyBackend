@@ -1,13 +1,14 @@
-# routers/chat.py  
+# routers/chat.py
 import logging
 import base64
-from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import List
 from pydantic import BaseModel
 
 from core.deps import get_current_user, get_db
+from core.rate_limit import rate_limiter_with_user, rate_limiter
 from models.user import User
 from schemas.chat import (
     ChatRequest, ChatResponse, ChatConversation, ChatConversationSummary,
@@ -26,7 +27,7 @@ class ChatIn(BaseModel):
     system: str | None = None      # optional system prompt (also from frontend)
 
 
-@router.post("/legacy") 
+@router.post("/legacy", dependencies=[Depends(rate_limiter("chat", require_auth=False))])
 async def chat_legacy(inp: ChatIn):
     """Legacy chat endpoint without conversation history"""
     logger.info(f"Legacy chat request: {len(inp.prompt)} characters")
@@ -48,9 +49,11 @@ async def chat_legacy(inp: ChatIn):
 # New chat endpoint with conversation history
 @router.post("", response_model=ChatResponse)
 async def chat(
+    req: Request,
     request: ChatRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rate_limit = Depends(rate_limiter_with_user("chat"))
 ):
     """Send a chat message and get AI response with conversation history"""
     logger.info(f"Chat request from user {current_user.id}: {len(request.prompt)} characters")
@@ -149,9 +152,11 @@ async def delete_conversation(
 
 @router.post("/generate-image", response_model=ImageGenerationResponse)
 async def generate_image(
+    req: Request,
     request: ImageGenerationRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rate_limit = Depends(rate_limiter_with_user("chat-image"))
 ):
     """Generate an image using OpenAI's DALL-E"""
     logger.info(f"Image generation request from user {current_user.id}: {request.prompt[:100]}...")
@@ -161,9 +166,11 @@ async def generate_image(
 
 @router.post("/scan-grocery", response_model=ImageScanResponse)
 async def scan_grocery_image(
+    req: Request,
     request: ImageScanRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rate_limit = Depends(rate_limiter_with_user("chat"))
 ):
     """Scan a grocery image to identify items, quantities, and categories"""
     logger.info(f"Grocery scan request from user {current_user.id}")
@@ -173,11 +180,13 @@ async def scan_grocery_image(
 
 @router.post("/scan-grocery-proxy", response_model=ImageScanResponse)
 async def scan_grocery_proxy(
+    req: Request,
     file: UploadFile = File(..., description="Image file (JPEG/PNG, max 2MB)"),
     scan_type: str = Form(..., description="Type of scan: 'groceries' or 'receipt'"),
     conversation_id: int | None = Form(None, description="Optional conversation ID"),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rate_limit = Depends(rate_limiter_with_user("chat"))
 ):
     """
     iOS Safari-compatible endpoint for scanning grocery/receipt images.

@@ -1,8 +1,9 @@
 # routers/notifications.py
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from core.db import get_db
 from core.deps import get_current_user
+from core.rate_limit import rate_limiter_with_user
 from models.user import User
 from crud.notifications import (
     get_user_notifications,
@@ -24,12 +25,14 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 @router.get("", response_model=List[NotificationOut])
 def get_my_notifications(
+    req: Request,
     unread_only: bool = Query(False, alias="unreadOnly"),
     type: Optional[str] = Query(None, description="Filter by notification type"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _rate_limit = Depends(rate_limiter_with_user("notifications"))
 ):
     """
     Get all notifications for the current user.
@@ -75,8 +78,10 @@ def get_my_notifications(
 
 @router.get("/unread-count", response_model=dict)
 def get_unread_notification_count(
+    req: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _rate_limit = Depends(rate_limiter_with_user("notifications"))
 ):
     """Get the count of unread notifications for the current user"""
     count = get_unread_count(db, current_user.id)

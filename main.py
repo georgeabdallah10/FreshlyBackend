@@ -10,7 +10,8 @@ import uuid
 
 from core.settings import settings
 from core.db import engine
-from core.security import RateLimitMiddleware, SecurityHeadersMiddleware
+from core.security import SecurityHeadersMiddleware
+from utils.cache import InMemoryCache
 from routers import auth as auth_router, families as families_router
 from routers import meals, storage, chat, meal_plans, pantry_items, user_preferences, memberships as memberships_router, users as users_router, meal_share_requests, notifications
 from dotenv import load_dotenv
@@ -30,6 +31,8 @@ async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
     logger.info(f"Starting {settings.APP_NAME} in {settings.APP_ENV} environment")
+
+    # Database connection
     try:
         with engine.connect() as conn:
             result = conn.exec_driver_sql("SELECT version();")
@@ -37,11 +40,35 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"[DB ERROR] {e}")
         raise
-    
+
+    # Redis connection (for rate limiting)
+    if settings.REDIS_URL:
+        try:
+            import redis.asyncio as redis
+            app.state.redis = redis.from_url(
+                settings.REDIS_URL,
+                encoding="utf-8",
+                decode_responses=True
+            )
+            await app.state.redis.ping()
+            logger.info("[REDIS OK] Connected to Redis for rate limiting")
+        except Exception as e:
+            logger.warning(f"[REDIS WARNING] Failed to connect: {e}, using in-memory fallback")
+            app.state.redis = None
+    else:
+        logger.info("[REDIS] URL not configured, rate limiting will use in-memory fallback")
+        app.state.redis = None
+
+    # Initialize in-memory fallback for rate limiting
+    app.state.rate_limit_cache = InMemoryCache()
+    logger.info("[CACHE] In-memory rate limit cache initialized")
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down application")
+    if hasattr(app.state, 'redis') and app.state.redis:
+        await app.state.redis.close()
     engine.dispose()
 
 
@@ -55,11 +82,6 @@ app = FastAPI(
 # Security middleware
 if not settings.is_development:
     app.add_middleware(SecurityHeadersMiddleware)
-    app.add_middleware(
-        RateLimitMiddleware,
-        default_requests=settings.RATE_LIMIT_REQUESTS,
-        window_seconds=settings.RATE_LIMIT_WINDOW
-    )
 
 app.add_middleware(
     TrustedHostMiddleware, 
