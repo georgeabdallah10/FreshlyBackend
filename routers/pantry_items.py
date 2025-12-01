@@ -1,10 +1,11 @@
 # routers/pantry_items.py
-from fastapi import APIRouter, Depends, HTTPException, status, Path, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, Path, BackgroundTasks, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from core.db import get_db
 from core.deps import get_current_user
+from core.rate_limit import rate_limiter_with_user
 from models.user import User
 from models.membership import FamilyMembership
 from schemas.pantry_item import PantryItemCreate, PantryItemUpdate, PantryItemOut
@@ -68,9 +69,11 @@ def _ensure_member(db: Session, user_id: int, family_id: int) -> None:
     responses={403: {"model": ErrorOut, "description": "Not a member"}},
 )
 def list_for_family(
+    req: Request,
     family_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _rate_limit = Depends(rate_limiter_with_user("pantry-read"))
 ):
     _ensure_member(db, current_user.id, family_id)
     items = list_pantry_items(db, family_id=family_id)
@@ -84,10 +87,12 @@ def list_for_family(
     responses={403: {"model": ErrorOut, "description": "Not a member"}},
 )
 async def create_one_item(
+    req: Request,
     data: PantryItemCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _rate_limit = Depends(rate_limiter_with_user("pantry-write"))
 ):
     # Resolve ingredient: if no id is provided but a name is, create or fetch it
     ingredient_id = data.ingredient_id
@@ -159,10 +164,12 @@ async def create_one_item(
     },
 )
 def update_one_item(
+    req: Request,
     item_id: int,
     data: PantryItemUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _rate_limit = Depends(rate_limiter_with_user("pantry-write"))
 ):
     item = get_pantry_item(db, item_id)
     if not item:
@@ -190,9 +197,11 @@ def update_one_item(
     },
 )
 def delete_one_item(
+    req: Request,
     item_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _rate_limit = Depends(rate_limiter_with_user("pantry-write"))
 ):
     item = get_pantry_item(db, item_id)
     if not item:
@@ -213,8 +222,10 @@ def delete_one_item(
     response_model=list[PantryItemOut],
 )
 def list_my_pantry(
+    req: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _rate_limit = Depends(rate_limiter_with_user("pantry-read"))
 ):
     items =  list_pantry_items(db, owner_user_id=current_user.id)
     return [_to_out(i) for i in items]
@@ -225,9 +236,11 @@ def list_my_pantry(
     status_code=status.HTTP_201_CREATED,
 )
 def create_my_pantry_item(
+    req: Request,
     data: PantryItemCreate,   # expects scope='personal' and no family_id
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _rate_limit = Depends(rate_limiter_with_user("pantry-write"))
 ):
     if data.scope != "personal" or data.family_id is not None:
         raise HTTPException(400, "Use scope='personal' with no family_id for this endpoint")

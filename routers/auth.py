@@ -1,11 +1,12 @@
 # routers/auth.py
-from fastapi import APIRouter, Depends, HTTPException, Header, status
+from fastapi import APIRouter, Depends, HTTPException, Header, status, Request
 from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel, EmailStr
 
 from core.db import get_db
 from core.deps import get_current_user
 from core.security import create_access_token, hash_password,decode_token
+from core.rate_limit import rate_limiter
 
 from models.user import User
 from schemas.auth import RegisterIn, LoginIn, TokenOut, OAuthSignupOut
@@ -38,7 +39,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
     response_model=UserOut,
     responses={400: {"model": ErrorOut, "description": "Email already registered"}},
 )
-def register(data: RegisterIn, db: Session = Depends(get_db)):
+def register(
+    request: Request,
+    data: RegisterIn,
+    db: Session = Depends(get_db),
+    _rate_limit = Depends(rate_limiter("auth-register", require_auth=False))
+):
     # prevent duplicate emails
     if get_user_by_email(db, data.email):
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -79,7 +85,12 @@ def register(data: RegisterIn, db: Session = Depends(get_db)):
     response_model=TokenOut,
     responses={400: {"model": ErrorOut, "description": "Invalid credentials"}},
 )
-def login(data: LoginIn, db: Session = Depends(get_db)):
+def login(
+    request: Request,
+    data: LoginIn,
+    db: Session = Depends(get_db),
+    _rate_limit = Depends(rate_limiter("auth-login", require_auth=False))
+):
     user = authenticate_user(db, email=data.email, password=data.password)
     if not user:
         raise HTTPException(status_code=400, detail="Invalid credentials")
@@ -101,8 +112,10 @@ def login(data: LoginIn, db: Session = Depends(get_db)):
     },
 )
 async def login_oauth(
+    request: Request,
     authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
+    _rate_limit = Depends(rate_limiter("auth-login", require_auth=False))
 ):
     """Authenticate an existing Supabase OAuth user."""
     if not authorization or not authorization.startswith("Bearer "):
@@ -142,8 +155,10 @@ async def login_oauth(
     },
 )
 async def signup_oauth(
+    request: Request,
     authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
+    _rate_limit = Depends(rate_limiter("auth-register", require_auth=False))
 ):
     """Register a new user using a Supabase-issued OAuth token."""
     if not authorization or not authorization.startswith("Bearer "):
@@ -259,7 +274,12 @@ class ResetPasswordIn(BaseModel):
     
 # ---------- 1) Request reset: send code ----------
 @router.post("/forgot-password")
-async def forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db)):
+async def forgot_password(
+    request: Request,
+    payload: ForgotPasswordIn,
+    db: Session = Depends(get_db),
+    _rate_limit = Depends(rate_limiter("auth-password-reset", require_auth=False))
+):
     user: User | None = get_user_by_email(db, email=payload.email)
     # Optional: avoid leaking existence; return 200 regardless.
     if not user:
@@ -282,7 +302,12 @@ async def forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_d
 
 # ---------- 2) Verify code -> issue one-time short-lived reset token ----------
 @router.post("/forgot-password/verify")
-def verify_reset_code(payload: VerifyResetCodeIn, db: Session = Depends(get_db)):
+def verify_reset_code(
+    request: Request,
+    payload: VerifyResetCodeIn,
+    db: Session = Depends(get_db),
+    _rate_limit = Depends(rate_limiter("auth-password-reset", require_auth=False))
+):
     user: User | None = get_user_by_email(db, email=payload.email)
     if not user or not user.password_reset_code or not user.password_reset_expires_at:
         raise HTTPException(status_code=400, detail="Invalid or expired code.")
@@ -323,7 +348,12 @@ def verify_reset_code(payload: VerifyResetCodeIn, db: Session = Depends(get_db))
 
 # ---------- 3) Reset password with token ----------
 @router.post("/reset-password")
-def reset_password(payload: ResetPasswordIn, db: Session = Depends(get_db)):
+def reset_password(
+    request: Request,
+    payload: ResetPasswordIn,
+    db: Session = Depends(get_db),
+    _rate_limit = Depends(rate_limiter("auth-password-reset", require_auth=False))
+):
     # 1) Decode and validate token
     try:
         claims = decode_token(payload.reset_token)
