@@ -11,6 +11,7 @@ class UserUpdate(BaseModel):
     phone_number: Optional[str] = None
     location: Optional[str] = None
     status: Optional[str] = None
+    tier: Optional[str] = Field(None, min_length=1, max_length=32)
     avatar_path: Optional[str] = None
     gender: Optional[str] = Field(None, min_length=1, max_length=32)
     age: Optional[int] = Field(None, ge=0)
@@ -18,7 +19,7 @@ class UserUpdate(BaseModel):
     height: Optional[float] = Field(None, gt=0)
     calories: Optional[float] = Field(None, gt=0)
 
-    @field_validator("name", "phone_number", "location", "status", "avatar_path", "gender")
+    @field_validator("name", "phone_number", "location", "status", "tier", "avatar_path", "gender")
     @classmethod
     def _strip(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
@@ -33,6 +34,7 @@ class UserOut(BaseModel):
     phone_number: Optional[str] = None
     location: Optional[str] = None
     status: Optional[str] = "user"
+    tier: Optional[str] = "free"
     avatar_path: Optional[str] = None
     gender: Optional[str] = None
     age: Optional[int] = None
