@@ -69,10 +69,10 @@ async def get_conversations(
     db: Session = Depends(get_db)
 ):
     """Get user's chat conversations with message counts"""
-    conversations_with_counts = chat_service.get_conversation_list(
+    conversations_with_counts = await chat_service.get_conversation_list(
         db, current_user, skip, limit
     )
-    
+
     return [
         ChatConversationSummary(
             id=conv.id,
@@ -135,7 +135,7 @@ async def update_conversation_title(
     db: Session = Depends(get_db)
 ):
     """Update conversation title"""
-    chat_service.update_conversation_title(db, current_user, conversation_id, title)
+    await chat_service.update_conversation_title(db, current_user, conversation_id, title)
     return {"message": "Title updated successfully"}
 
 
@@ -146,7 +146,7 @@ async def delete_conversation(
     db: Session = Depends(get_db)
 ):
     """Delete a conversation and all its messages"""
-    chat_service.delete_conversation(db, current_user, conversation_id)
+    await chat_service.delete_conversation(db, current_user, conversation_id)
     return {"message": "Conversation deleted successfully"}
 
 

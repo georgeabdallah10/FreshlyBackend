@@ -5,11 +5,19 @@ from pydantic import BaseModel, EmailStr
 
 from core.db import get_db
 from core.deps import get_current_user
-from core.security import create_access_token, hash_password,decode_token
+from core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
+    revoke_token,
+    hash_password,
+    decode_token,
+    log_auth_event
+)
 from core.rate_limit import rate_limiter
 
 from models.user import User
-from schemas.auth import RegisterIn, LoginIn, TokenOut, OAuthSignupOut
+from schemas.auth import RegisterIn, LoginIn, TokenOut, OAuthSignupOut, RefreshTokenRequest
 from schemas.user import UserOut
 from schemas.user_preference import UserPreferenceCreate
 
@@ -47,7 +55,16 @@ def register(
 ):
     # prevent duplicate emails
     if get_user_by_email(db, data.email):
+        log_auth_event(
+            "REGISTER_FAILED",
+            user_id=None,
+            email=data.email,
+            success=False,
+            reason="Email already exists",
+            ip=request.client.host if request.client else None
+        )
         raise HTTPException(status_code=400, detail="Email already registered")
+
     # create user
     user = create_user(db, email=data.email, name=data.name, password=data.password, phone_number=data.phone_number)
     if getattr(data, "preference", None) is not None:
@@ -77,6 +94,15 @@ def register(
         .filter(User.id == user.id)
         .first()
     )
+
+    log_auth_event(
+        "REGISTER_SUCCESS",
+        user_id=user.id,
+        email=user.email,
+        success=True,
+        ip=request.client.host if request.client else None
+    )
+
     return user
 
 
@@ -93,13 +119,135 @@ def login(
 ):
     user = authenticate_user(db, email=data.email, password=data.password)
     if not user:
+        log_auth_event(
+            "LOGIN_FAILED",
+            user_id=None,
+            email=data.email,
+            success=False,
+            reason="Invalid credentials",
+            ip=request.client.host if request.client else None
+        )
         raise HTTPException(status_code=400, detail="Invalid credentials")
     # TEMPORARILY SKIP EMAIL VERIFICATION
     # If you want to enforce verification, uncomment below:
     # if not user.is_verified:
     #     raise HTTPException(status_code=403, detail="Please verify your email before logging in.")
-    # issue JWT
-    return TokenOut(access_token=create_access_token(sub=str(user.id)))
+
+    # Create both access and refresh tokens
+    access_token = create_access_token(sub=str(user.id))
+    refresh_token = create_refresh_token(user_id=user.id)
+
+    log_auth_event(
+        "LOGIN_SUCCESS",
+        user_id=user.id,
+        email=user.email,
+        success=True,
+        ip=request.client.host if request.client else None
+    )
+
+    return TokenOut(
+        access_token=access_token,
+        refresh_token=refresh_token
+    )
+
+
+@router.post(
+    "/refresh",
+    response_model=TokenOut,
+    responses={401: {"model": ErrorOut, "description": "Invalid or expired refresh token"}},
+)
+async def refresh(
+    request: Request,
+    data: RefreshTokenRequest,
+    db: Session = Depends(get_db),
+    _rate_limit = Depends(rate_limiter("auth-login", require_auth=False))
+):
+    """Exchange refresh token for new access + refresh tokens"""
+    # Check if refresh token is revoked
+    if await is_token_revoked(data.refresh_token, request):
+        log_auth_event(
+            "REFRESH_FAILED",
+            user_id=None,
+            email=None,
+            success=False,
+            reason="Refresh token revoked",
+            ip=request.client.host if request.client else None
+        )
+        raise HTTPException(status_code=401, detail="Refresh token has been revoked")
+
+    # Decode and validate refresh token
+    try:
+        payload = decode_refresh_token(data.refresh_token)
+        user_id = int(payload.get("sub"))
+    except HTTPException as e:
+        log_auth_event(
+            "REFRESH_FAILED",
+            user_id=None,
+            email=None,
+            success=False,
+            reason=str(e.detail),
+            ip=request.client.host if request.client else None
+        )
+        raise
+
+    # Verify user still exists
+    user = db.get(User, user_id)
+    if not user:
+        log_auth_event(
+            "REFRESH_FAILED",
+            user_id=user_id,
+            email=None,
+            success=False,
+            reason="User not found",
+            ip=request.client.host if request.client else None
+        )
+        raise HTTPException(status_code=401, detail="User not found")
+
+    # Revoke old refresh token (token rotation)
+    await revoke_token(data.refresh_token, request)
+
+    # Issue new tokens
+    new_access_token = create_access_token(sub=str(user.id))
+    new_refresh_token = create_refresh_token(user_id=user.id)
+
+    log_auth_event(
+        "REFRESH_SUCCESS",
+        user_id=user.id,
+        email=user.email,
+        success=True,
+        ip=request.client.host if request.client else None
+    )
+
+    return TokenOut(
+        access_token=new_access_token,
+        refresh_token=new_refresh_token
+    )
+
+
+@router.post(
+    "/logout",
+    responses={200: {"description": "Successfully logged out"}},
+)
+async def logout(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
+    """Revoke current access token"""
+    # Extract token from authorization header
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ", 1)[1]
+        await revoke_token(token, request)
+
+        log_auth_event(
+            "LOGOUT_SUCCESS",
+            user_id=current_user.id,
+            email=current_user.email,
+            success=True,
+            ip=request.client.host if request.client else None
+        )
+
+    return {"message": "Successfully logged out"}
 
 
 @router.post(
@@ -126,6 +274,7 @@ async def login_oauth(
 
     user, provider, username = await OAuthSignupService.authenticate(db, supabase_token)
     access_token = OAuthSignupService.issue_access_token(user)
+    refresh_token = create_refresh_token(user_id=user.id)
 
     # Reload user with relationships for complete response
     user = (
@@ -135,8 +284,18 @@ async def login_oauth(
         .first()
     )
 
+    log_auth_event(
+        "OAUTH_LOGIN_SUCCESS",
+        user_id=user.id,
+        email=user.email,
+        success=True,
+        metadata={"provider": provider},
+        ip=request.client.host if request.client else None
+    )
+
     return OAuthSignupOut(
         access_token=access_token,
+        refresh_token=refresh_token,
         user={
             "id": user.id,
             "email": user.email,
@@ -169,6 +328,7 @@ async def signup_oauth(
 
     user, provider, username = await OAuthSignupService.register(db, supabase_token)
     access_token = OAuthSignupService.issue_access_token(user)
+    refresh_token = create_refresh_token(user_id=user.id)
 
     # Reload user with relationships for complete response
     user = (
@@ -178,8 +338,18 @@ async def signup_oauth(
         .first()
     )
 
+    log_auth_event(
+        "OAUTH_SIGNUP_SUCCESS",
+        user_id=user.id,
+        email=user.email,
+        success=True,
+        metadata={"provider": provider},
+        ip=request.client.host if request.client else None
+    )
+
     return OAuthSignupOut(
         access_token=access_token,
+        refresh_token=refresh_token,
         user={
             "id": user.id,
             "email": user.email,
@@ -298,6 +468,15 @@ async def forgot_password(
         db.add(user); db.commit(); db.refresh(user)
 
     await send_password_reset_code(user.email, code)
+
+    log_auth_event(
+        "PASSWORD_RESET_REQUESTED",
+        user_id=user.id,
+        email=user.email,
+        success=True,
+        ip=request.client.host if request.client else None
+    )
+
     return {"message": "If that account exists, a reset code was sent."}
 
 # ---------- 2) Verify code -> issue one-time short-lived reset token ----------
@@ -326,6 +505,14 @@ def verify_reset_code(
     if payload.code.strip() != user.password_reset_code:
         user.password_reset_attempts += 1
         db.add(user); db.commit()
+        log_auth_event(
+            "PASSWORD_RESET_CODE_FAILED",
+            user_id=user.id,
+            email=user.email,
+            success=False,
+            reason="Invalid code",
+            ip=request.client.host if request.client else None
+        )
         raise HTTPException(status_code=400, detail="Invalid code.")
 
     # success -> issue short-lived reset token (e.g., 15 minutes)
@@ -338,11 +525,19 @@ def verify_reset_code(
         "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
     },
 )
-    # clear the code so it’s one-time
+    # clear the code so it's one-time
     user.password_reset_code = None
     user.password_reset_expires_at = None
     user.password_reset_attempts = 0
     db.add(user); db.commit()
+
+    log_auth_event(
+        "PASSWORD_RESET_CODE_VERIFIED",
+        user_id=user.id,
+        email=user.email,
+        success=True,
+        ip=request.client.host if request.client else None
+    )
 
     return {"message": "Code verified.", "reset_token": reset_token}
 
@@ -382,5 +577,13 @@ def reset_password(
 
     db.add(user)
     db.commit()
+
+    log_auth_event(
+        "PASSWORD_RESET_SUCCESS",
+        user_id=user.id,
+        email=user.email,
+        success=True,
+        ip=request.client.host if request.client else None
+    )
 
     return {"message": "Password has been reset successfully."}

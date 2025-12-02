@@ -27,8 +27,8 @@ class Settings(BaseSettings):
     # JWT settings
     JWT_SECRET: str
     JWT_ALG: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30  # Changed from 1440 (24h) to 30 minutes for security
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # Changed from 30 to 7 days
     
     # External services
     SUPABASE_URL: Optional[str] = None

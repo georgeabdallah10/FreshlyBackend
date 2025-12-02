@@ -19,6 +19,7 @@ from crud.notifications import (
 )
 from schemas.notification import NotificationOut, NotificationUpdate, NotificationStats
 from typing import Optional, List
+from utils.cache import get_cache, invalidate_cache_pattern
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -77,14 +78,27 @@ def get_my_notifications(
 
 
 @router.get("/unread-count", response_model=dict)
-def get_unread_notification_count(
+async def get_unread_notification_count(
     req: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _rate_limit = Depends(rate_limiter_with_user("notifications"))
 ):
     """Get the count of unread notifications for the current user"""
+    # Try cache first
+    cache = get_cache()
+    cache_key = f"notifications:unread:{current_user.id}"
+    cached_count = await cache.get(cache_key)
+
+    if cached_count is not None:
+        return {"count": cached_count}
+
+    # Cache miss - fetch from database
     count = get_unread_count(db, current_user.id)
+
+    # Cache for 30 seconds
+    await cache.set(cache_key, count, ttl=30)
+
     return {"count": count}
 
 
@@ -137,22 +151,25 @@ def get_notification_by_id(
 
 
 @router.patch("/{notification_id}/read", response_model=NotificationOut)
-def mark_notification_as_read(
+async def mark_notification_as_read(
     notification_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Mark a specific notification as read"""
     notification = get_notification(db, notification_id)
-    
+
     if not notification:
         raise HTTPException(status_code=404, detail="Notification not found")
-    
+
     if notification.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to modify this notification")
-    
+
     updated_notification = mark_as_read(db, notification)
-    
+
+    # Invalidate notification cache
+    await invalidate_cache_pattern(f"notifications:unread:{current_user.id}")
+
     return NotificationOut(
         id=updated_notification.id,
         userId=updated_notification.user_id,
@@ -173,22 +190,25 @@ def mark_notification_as_read(
 
 
 @router.patch("/{notification_id}/unread", response_model=NotificationOut)
-def mark_notification_as_unread(
+async def mark_notification_as_unread(
     notification_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Mark a specific notification as unread"""
     notification = get_notification(db, notification_id)
-    
+
     if not notification:
         raise HTTPException(status_code=404, detail="Notification not found")
-    
+
     if notification.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to modify this notification")
-    
+
     updated_notification = mark_as_unread(db, notification)
-    
+
+    # Invalidate notification cache
+    await invalidate_cache_pattern(f"notifications:unread:{current_user.id}")
+
     return NotificationOut(
         id=updated_notification.id,
         userId=updated_notification.user_id,
@@ -209,49 +229,66 @@ def mark_notification_as_unread(
 
 
 @router.post("/mark-all-read", response_model=dict)
-def mark_all_notifications_as_read(
+async def mark_all_notifications_as_read(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Mark all notifications as read for the current user"""
     count = mark_all_as_read(db, current_user.id)
+
+    # Invalidate notification cache
+    await invalidate_cache_pattern(f"notifications:unread:{current_user.id}")
+
     return {"message": f"Marked {count} notifications as read", "count": count}
 
 
 @router.delete("/{notification_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_single_notification(
+async def delete_single_notification(
     notification_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Delete a specific notification"""
     notification = get_notification(db, notification_id)
-    
+
     if not notification:
         raise HTTPException(status_code=404, detail="Notification not found")
-    
+
     if notification.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to delete this notification")
-    
+
+    # Check if notification is unread before deletion
+    is_unread = not notification.is_read
+
     delete_notification(db, notification)
+
+    # Invalidate notification cache if unread notification was deleted
+    if is_unread:
+        await invalidate_cache_pattern(f"notifications:unread:{current_user.id}")
+
     return None
 
 
 @router.delete("/read/all", response_model=dict)
-def delete_all_read(
+async def delete_all_read(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Delete all read notifications for the current user"""
     count = delete_all_read_notifications(db, current_user.id)
+    # No need to invalidate cache - only read notifications deleted
     return {"message": f"Deleted {count} read notifications", "count": count}
 
 
 @router.delete("/all", response_model=dict)
-def delete_all(
+async def delete_all(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Delete all notifications for the current user"""
     count = delete_all_notifications(db, current_user.id)
+
+    # Invalidate notification cache (all notifications including unread are deleted)
+    await invalidate_cache_pattern(f"notifications:unread:{current_user.id}")
+
     return {"message": f"Deleted {count} notifications", "count": count}
