@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Optional
 from fastapi import Request, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.base import BaseHTTPMiddleware
-from jwt.exceptions import JWTError
+from jwt import PyJWKError as JWTError
 import jwt
 import logging
 
