@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
@@ -113,7 +114,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=[
         "Accept",
-        "Accept-Language", 
+        "Accept-Language",
         "Content-Language",
         "Content-Type",
         "Authorization",
@@ -123,7 +124,14 @@ app.add_middleware(
         "Access-Control-Request-Headers",
         # Removed X-User-ID as we now use JWT authentication instead
     ],
-    expose_headers=["X-Correlation-ID", "X-Process-Time"],
+    expose_headers=["X-Correlation-ID", "X-Process-Time", "ETag", "Cache-Control"],
+)
+
+# Compression middleware - reduces response sizes by 60-80%
+app.add_middleware(
+    GZipMiddleware,
+    minimum_size=1000,  # Only compress responses > 1KB
+    compresslevel=5     # Balance between speed and compression ratio
 )
 
 

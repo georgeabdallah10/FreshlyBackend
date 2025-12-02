@@ -1,8 +1,9 @@
 # routers/meals.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from core.db import get_db
 from core.deps import get_current_user
+from core.cache_headers import cache_control
 from models.user import User
 from models.membership import FamilyMembership
 from crud.meals import create_meal, list_meals, get_meal, update_meal, delete_meal, attach_meal_to_family
@@ -11,7 +12,8 @@ from schemas.meal import MealCreate, MealOut, AttachFamilyRequest
 router = APIRouter(prefix="/meals", tags=["meals"])
 
 @router.get("/me", response_model=list[MealOut])
-def list_my_meals(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+@cache_control(max_age=300, private=True)
+async def list_my_meals(request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     return list_meals(db, created_by_user_id=current_user.id)
 
 @router.post("/me", response_model=MealOut, status_code=status.HTTP_201_CREATED)

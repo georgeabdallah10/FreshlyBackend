@@ -1,10 +1,11 @@
 # routers/meal_plans.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from core.db import get_db
 from core.deps import get_current_user
+from core.cache_headers import cache_control
 from models.user import User
 from models.membership import FamilyMembership
 from schemas.meal_plan import MealPlanCreate, MealPlanUpdate, MealPlanOut
@@ -45,7 +46,9 @@ def _ensure_can_edit(db: Session, user_id: int, family_id: int) -> None:
 # ---------------- Personal Meal Endpoints ----------------
 
 @router.get("/me", response_model=list[MealPlanOut])
-def list_my_meals(
+@cache_control(max_age=300, private=True)
+async def list_my_meals(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
