@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from core.db import get_db
 from core.deps import get_current_user
 from core.rate_limit import rate_limiter_with_user
+from core.cache_headers import cache_control
 from utils.cache import get_cache, invalidate_cache_pattern
 from models.user import User
 from models.membership import FamilyMembership
@@ -69,8 +70,10 @@ def _ensure_member(db: Session, user_id: int, family_id: int) -> None:
     response_model=list[PantryItemOut],
     responses={403: {"model": ErrorOut, "description": "Not a member"}},
 )
+@cache_control(max_age=60, private=True)
 async def list_for_family(
     req: Request,
+    request: Request,
     family_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.deps import get_current_user
 from core.rate_limit import rate_limiter_with_user
+from core.cache_headers import cache_control
 from models.user import User
 from crud.notifications import (
     get_user_notifications,
@@ -25,8 +26,10 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 
 @router.get("", response_model=List[NotificationOut])
-def get_my_notifications(
+@cache_control(max_age=30, private=True)
+async def get_my_notifications(
     req: Request,
+    request: Request,
     unread_only: bool = Query(False, alias="unreadOnly"),
     type: Optional[str] = Query(None, description="Filter by notification type"),
     skip: int = Query(0, ge=0),
