@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from core.db import get_db
 from core.deps import get_current_user
 from core.rate_limit import rate_limiter_with_user
+from utils.cache import get_cache, invalidate_cache_pattern
 from models.user import User
 from models.membership import FamilyMembership
 from schemas.pantry_item import PantryItemCreate, PantryItemUpdate, PantryItemOut
@@ -68,7 +69,7 @@ def _ensure_member(db: Session, user_id: int, family_id: int) -> None:
     response_model=list[PantryItemOut],
     responses={403: {"model": ErrorOut, "description": "Not a member"}},
 )
-def list_for_family(
+async def list_for_family(
     req: Request,
     family_id: int,
     db: Session = Depends(get_db),
@@ -76,7 +77,21 @@ def list_for_family(
     _rate_limit = Depends(rate_limiter_with_user("pantry-read"))
 ):
     _ensure_member(db, current_user.id, family_id)
+
+    # Try cache first
+    cache = get_cache()
+    cache_key = f"pantry:family:{family_id}"
+    cached_items = await cache.get(cache_key)
+
+    if cached_items:
+        return [_to_out(i) for i in cached_items]
+
+    # Cache miss - fetch from database
     items = list_pantry_items(db, family_id=family_id)
+
+    # Cache for 60 seconds
+    await cache.set(cache_key, items, ttl=60)
+
     return [_to_out(i) for i in items]
 
 
@@ -122,16 +137,19 @@ async def create_one_item(
             expires_at=data.expires_at,
             category=data.category
         )
-        
+
+        # Invalidate family pantry cache
+        await invalidate_cache_pattern(f"pantry:family:{data.family_id}")
+
         # Schedule background image generation
         if ingredient_name:
             background_tasks.add_task(
                 pantry_image_service.generate_image_background,
                 db, current_user, created, ingredient_name
             )
-        
+
         return _to_out(created)
-        
+
     elif data.scope == "personal":
         created = create_pantry_item(
             db,
@@ -143,14 +161,17 @@ async def create_one_item(
             expires_at=data.expires_at,
             category=data.category
         )
-        
+
+        # Invalidate user pantry cache
+        await invalidate_cache_pattern(f"pantry:user:{current_user.id}")
+
         # Schedule background image generation
         if ingredient_name:
             background_tasks.add_task(
                 pantry_image_service.generate_image_background,
                 db, current_user, created, ingredient_name
             )
-        
+
         return _to_out(created)
     else:
         raise HTTPException(status_code=400, detail="Invalid scope")
@@ -163,7 +184,7 @@ async def create_one_item(
         404: {"model": ErrorOut, "description": "Item not found"},
     },
 )
-def update_one_item(
+async def update_one_item(
     req: Request,
     item_id: int,
     data: PantryItemUpdate,
@@ -182,9 +203,17 @@ def update_one_item(
             raise HTTPException(status_code=403, detail="Not authorized to modify this item")
     else:
         raise HTTPException(status_code=403, detail="Not authorized to modify this item")
+
     updated_item = update_pantry_item(
         db, item, quantity=data.quantity, unit=data.unit, expires_at=data.expires_at ,category=data.category
     )
+
+    # Invalidate appropriate cache
+    if item.family_id:
+        await invalidate_cache_pattern(f"pantry:family:{item.family_id}")
+    if item.owner_user_id:
+        await invalidate_cache_pattern(f"pantry:user:{item.owner_user_id}")
+
     return _to_out(updated_item)
 
 
@@ -196,7 +225,7 @@ def update_one_item(
         404: {"model": ErrorOut, "description": "Item not found"},
     },
 )
-def delete_one_item(
+async def delete_one_item(
     req: Request,
     item_id: int,
     db: Session = Depends(get_db),
@@ -214,20 +243,45 @@ def delete_one_item(
             raise HTTPException(status_code=403, detail="Not authorized to modify this item")
     else:
         raise HTTPException(status_code=403, detail="Not authorized to modify this item")
+
+    # Store IDs before deletion
+    family_id = item.family_id
+    owner_user_id = item.owner_user_id
+
     delete_pantry_item(db, item)
+
+    # Invalidate appropriate cache
+    if family_id:
+        await invalidate_cache_pattern(f"pantry:family:{family_id}")
+    if owner_user_id:
+        await invalidate_cache_pattern(f"pantry:user:{owner_user_id}")
+
     return None
 
 @router.get(
     "/me",
     response_model=list[PantryItemOut],
 )
-def list_my_pantry(
+async def list_my_pantry(
     req: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _rate_limit = Depends(rate_limiter_with_user("pantry-read"))
 ):
-    items =  list_pantry_items(db, owner_user_id=current_user.id)
+    # Try cache first
+    cache = get_cache()
+    cache_key = f"pantry:user:{current_user.id}"
+    cached_items = await cache.get(cache_key)
+
+    if cached_items:
+        return [_to_out(i) for i in cached_items]
+
+    # Cache miss - fetch from database
+    items = list_pantry_items(db, owner_user_id=current_user.id)
+
+    # Cache for 60 seconds
+    await cache.set(cache_key, items, ttl=60)
+
     return [_to_out(i) for i in items]
 
 @router.post(
@@ -235,7 +289,7 @@ def list_my_pantry(
     response_model=PantryItemOut,
     status_code=status.HTTP_201_CREATED,
 )
-def create_my_pantry_item(
+async def create_my_pantry_item(
     req: Request,
     data: PantryItemCreate,   # expects scope='personal' and no family_id
     db: Session = Depends(get_db),
@@ -261,4 +315,8 @@ def create_my_pantry_item(
         expires_at=data.expires_at,
         category=data.category
     )
+
+    # Invalidate user pantry cache
+    await invalidate_cache_pattern(f"pantry:user:{current_user.id}")
+
     return _to_out(item)
