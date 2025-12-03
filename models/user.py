@@ -57,6 +57,14 @@ class User(Base):
     cascade="all, delete-orphan"
     )
 
+    # Personal grocery lists
+    personal_grocery_lists = relationship(
+        "GroceryList",
+        back_populates="owner",
+        foreign_keys="GroceryList.owner_user_id",
+        cascade="all, delete-orphan"
+    )
+
     # User → UserPreference (one-to-one, singular: preference)
     preference = relationship(
         "UserPreference",

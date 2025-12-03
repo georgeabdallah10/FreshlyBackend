@@ -1,5 +1,5 @@
 # models/grocery_list.py
-from sqlalchemy import Integer, Text, DateTime, ForeignKey, Numeric, Boolean, func
+from sqlalchemy import Integer, Text, DateTime, ForeignKey, Numeric, Boolean, CheckConstraint, Index, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from core.db import Base
 from datetime import datetime
@@ -10,7 +10,19 @@ class GroceryList(Base):
     __tablename__ = "grocery_lists"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    family_id: Mapped[int] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"), nullable=False)
+
+    # Dual-scope fields (XOR constraint)
+    family_id: Mapped[int | None] = mapped_column(
+        ForeignKey("families.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True
+    )
+    owner_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True
+    )
+
     meal_plan_id: Mapped[int | None] = mapped_column(ForeignKey("meal_plans.id", ondelete="SET NULL"))
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")  # draft | finalized | purchased
@@ -18,11 +30,23 @@ class GroceryList(Base):
 
     # relationships
     family = relationship("Family", back_populates="grocery_lists")
+    owner = relationship("User", back_populates="personal_grocery_lists")
     meal_plan = relationship("MealPlan", back_populates="grocery_lists")
     items = relationship("GroceryListItem", back_populates="grocery_list", cascade="all, delete-orphan")
 
+    __table_args__ = (
+        CheckConstraint(
+            "(family_id IS NOT NULL AND owner_user_id IS NULL) OR "
+            "(family_id IS NULL AND owner_user_id IS NOT NULL)",
+            name="grocery_list_scope_xor"
+        ),
+        Index('idx_grocery_list_family_status', 'family_id', 'status'),
+        Index('idx_grocery_list_owner_status', 'owner_user_id', 'status'),
+    )
+
     def __repr__(self) -> str:
-        return f"<GroceryList id={self.id} family_id={self.family_id} status={self.status}>"
+        scope = "family" if self.family_id else "personal"
+        return f"<GroceryList id={self.id} scope={scope} status={self.status}>"
 
 
 class GroceryListItem(Base):
