@@ -14,7 +14,7 @@ from core.db import engine
 from core.security import SecurityHeadersMiddleware
 from utils.cache import InMemoryCache
 from routers import auth as auth_router, families as families_router
-from routers import meals, storage, chat, meal_plans, pantry_items, user_preferences, memberships as memberships_router, users as users_router, meal_share_requests, notifications
+from routers import meals, storage, chat, meal_plans, pantry_items, user_preferences, memberships as memberships_router, users as users_router, meal_share_requests, notifications, grocery_lists
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -287,6 +287,7 @@ app.include_router(users_router.router)
 app.include_router(memberships_router.router)
 app.include_router(user_preferences.router)
 app.include_router(pantry_items.router)
+app.include_router(grocery_lists.router)
 app.include_router(meal_plans.router)
 app.include_router(chat.router)
 app.include_router(meals.router)

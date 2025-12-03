@@ -47,6 +47,17 @@ RATE_LIMIT_POLICIES = {
             {"limit": 120, "window": 60, "type": "burst"}     # 120/min
         ]
     },
+    # Grocery List operations (authenticated)
+    "grocery-write": {
+        "default": [
+            {"limit": 60, "window": 60, "type": "burst"}      # 60/min
+        ]
+    },
+    "grocery-read": {
+        "default": [
+            {"limit": 120, "window": 60, "type": "burst"}     # 120/min
+        ]
+    },
     # Notifications
     "notifications": {
         "default": [
