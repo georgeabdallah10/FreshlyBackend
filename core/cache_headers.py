@@ -8,6 +8,7 @@ from typing import Any, Callable, Optional
 from functools import wraps
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 
 
 def generate_etag(content: Any) -> str:
@@ -84,8 +85,9 @@ def cache_control(
                 result.headers['Cache-Control'] = cache_directive
                 return result
             else:
+                encoded = jsonable_encoder(result)
                 return JSONResponse(
-                    content=result,
+                    content=encoded,
                     headers={
                         'ETag': etag,
                         'Cache-Control': cache_directive
@@ -116,8 +118,9 @@ def no_cache():
                 result.headers['Pragma'] = 'no-cache'
                 return result
             else:
+                encoded = jsonable_encoder(result)
                 return JSONResponse(
-                    content=result,
+                    content=encoded,
                     headers={
                         'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
                         'Pragma': 'no-cache'
