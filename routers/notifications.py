@@ -28,7 +28,6 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 @router.get("", response_model=List[NotificationOut])
 @cache_control(max_age=30, private=True)
 async def get_my_notifications(
-    req: Request,
     request: Request,
     unread_only: bool = Query(False, alias="unreadOnly"),
     type: Optional[str] = Query(None, description="Filter by notification type"),
@@ -82,7 +81,7 @@ async def get_my_notifications(
 
 @router.get("/unread-count", response_model=dict)
 async def get_unread_notification_count(
-    req: Request,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _rate_limit = Depends(rate_limiter_with_user("notifications"))
