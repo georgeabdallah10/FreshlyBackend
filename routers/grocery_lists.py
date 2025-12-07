@@ -1,13 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from core.db import get_db
 from core.deps import get_current_user
 from core.rate_limit import rate_limiter_with_user
-from core.cache_headers import cache_control
 from utils.cache import get_cache, invalidate_cache_pattern
 from models.user import User
+from models.grocery_list import GroceryList
 from models.membership import FamilyMembership
 from schemas.grocery_list import (
     GroceryListCreate,
@@ -71,6 +73,38 @@ def _ensure_list_access(
         raise HTTPException(status_code=403, detail="Access denied to this list")
 
 
+def _ensure_list_creator(
+    grocery_list: GroceryList,
+    user_id: int
+) -> None:
+    """
+    Verify user is the list creator (required for pantry sync).
+
+    For personal lists: owner is the creator
+    For family lists: check created_by_user_id field
+    """
+    # Personal list: creator is owner
+    if grocery_list.owner_user_id:
+        if grocery_list.owner_user_id != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the list owner can sync with pantry"
+            )
+        return
+
+    # Family list: check created_by_user_id
+    if grocery_list.created_by_user_id != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the list creator can sync with pantry"
+        )
+
+
+def _add_no_cache_headers(response: Response) -> None:
+    """Add Cache-Control: no-store header to response"""
+    response.headers["Cache-Control"] = "no-store"
+
+
 def _build_cache_key(scope: str, scope_id: int) -> str:
     """Build cache key for grocery lists"""
     return f"grocery_lists:{scope}:{scope_id}"
@@ -83,9 +117,9 @@ def _build_cache_key(scope: str, scope_id: int) -> str:
     response_model=list[GroceryListOut],
     responses={403: {"model": ErrorOut}},
 )
-@cache_control(max_age=60, private=True)
 async def list_family_lists(
     request: Request,
+    response: Response,
     family_id: int,
     status: str | None = None,
     db: Session = Depends(get_db),
@@ -94,21 +128,10 @@ async def list_family_lists(
 ):
     """List all grocery lists for a family"""
     _ensure_member(db, current_user.id, family_id)
+    _add_no_cache_headers(response)
 
-    # Try cache first
-    cache = get_cache()
-    cache_key = _build_cache_key("family", family_id)
-    cached_lists = await cache.get(cache_key)
-
-    if cached_lists and not status:
-        return [GroceryListOut.from_orm_with_scope(l) for l in cached_lists]
-
-    # Cache miss - fetch from DB
+    # Fetch from DB (no caching for grocery lists)
     lists = list_grocery_lists(db, family_id=family_id, status=status)
-
-    # Cache for 60 seconds (if no status filter)
-    if not status:
-        await cache.set(cache_key, lists, ttl=60)
 
     return [GroceryListOut.from_orm_with_scope(l) for l in lists]
 
@@ -117,28 +140,19 @@ async def list_family_lists(
     "/me",
     response_model=list[GroceryListOut],
 )
-@cache_control(max_age=60, private=True)
 async def list_my_lists(
     request: Request,
+    response: Response,
     status: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _rate_limit = Depends(rate_limiter_with_user("grocery-read")),
 ):
     """List all personal grocery lists for current user"""
-    # Try cache first
-    cache = get_cache()
-    cache_key = _build_cache_key("user", current_user.id)
-    cached_lists = await cache.get(cache_key)
+    _add_no_cache_headers(response)
 
-    if cached_lists and not status:
-        return [GroceryListOut.from_orm_with_scope(l) for l in cached_lists]
-
-    # Cache miss
+    # Fetch from DB (no caching for grocery lists)
     lists = list_grocery_lists(db, owner_user_id=current_user.id, status=status)
-
-    if not status:
-        await cache.set(cache_key, lists, ttl=60)
 
     return [GroceryListOut.from_orm_with_scope(l) for l in lists]
 
@@ -172,11 +186,14 @@ async def get_one_list(
 )
 async def create_one_list(
     data: GroceryListCreate,
+    response: Response,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _rate_limit = Depends(rate_limiter_with_user("grocery-write")),
 ):
     """Create new grocery list"""
+    _add_no_cache_headers(response)
+
     # Set owner_user_id from current_user for personal scope
     if data.scope == "personal":
         data.owner_user_id = current_user.id
@@ -189,16 +206,11 @@ async def create_one_list(
         db,
         family_id=data.family_id,
         owner_user_id=data.owner_user_id,
+        created_by_user_id=current_user.id,  # Always track who created the list
         title=data.title,
         status=data.status,
         meal_plan_id=data.meal_plan_id,
     )
-
-    # Invalidate cache
-    if created.family_id:
-        await invalidate_cache_pattern(f"grocery_lists:family:{created.family_id}")
-    if created.owner_user_id:
-        await invalidate_cache_pattern(f"grocery_lists:user:{created.owner_user_id}")
 
     return GroceryListOut.from_orm_with_scope(created)
 
@@ -520,35 +532,45 @@ async def add_from_recipe(
 
 
 @router.post(
-    "/{list_id}/sync-with-pantry",
+    "/{list_id}/sync-pantry",
     response_model=SyncWithPantryResponse,
-    responses={403: {"model": ErrorOut}, 404: {"model": ErrorOut}},
+    responses={
+        403: {"model": ErrorOut, "description": "Only list creator can sync with pantry"},
+        404: {"model": ErrorOut},
+    },
 )
 async def sync_with_pantry(
     list_id: int,
+    response: Response,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _rate_limit = Depends(rate_limiter_with_user("grocery-write")),
 ):
-    """Sync grocery list with current pantry inventory"""
-    g = get_grocery_list(db, list_id)
+    """
+    Sync grocery list with current pantry inventory (creator only).
+
+    This endpoint removes or reduces quantities of items that are now
+    available in the user's pantry. Only the list creator can perform
+    this operation to prevent unauthorized modifications.
+    """
+    _add_no_cache_headers(response)
+
+    g = get_grocery_list(db, list_id, load_items=True)
     if not g:
         raise HTTPException(status_code=404, detail="List not found")
 
+    # Access check (view permission)
     _ensure_list_access(db, g, current_user.id)
 
+    # Creator check (sync permission) - only creator can sync pantry
+    _ensure_list_creator(g, current_user.id)
+
     try:
-        items_removed, items_updated = grocery_list_service.sync_list_with_pantry(
-            db, list_id
+        items_removed, items_updated, updated_list = grocery_list_service.sync_list_with_pantry(
+            db, g
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-    # Invalidate cache
-    if g.family_id:
-        await invalidate_cache_pattern(f"grocery_lists:family:{g.family_id}")
-    if g.owner_user_id:
-        await invalidate_cache_pattern(f"grocery_lists:user:{g.owner_user_id}")
 
     return SyncWithPantryResponse(
         items_removed=items_removed,

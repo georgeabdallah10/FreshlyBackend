@@ -66,11 +66,13 @@ class GroceryListOut(BaseModel):
     id: int
     family_id: Optional[int] = None
     owner_user_id: Optional[int] = None
+    created_by_user_id: Optional[int] = None
     scope: Literal["family", "personal"]
     meal_plan_id: Optional[int] = None
     title: Optional[str] = None
     status: str
     created_at: datetime
+    updated_at: datetime
 
     items: list[GroceryListItemSummary] = []
 
@@ -81,11 +83,13 @@ class GroceryListOut(BaseModel):
             "id": obj.id,
             "family_id": obj.family_id,
             "owner_user_id": obj.owner_user_id,
+            "created_by_user_id": obj.created_by_user_id,
             "scope": "family" if obj.family_id else "personal",
             "meal_plan_id": obj.meal_plan_id,
             "title": obj.title,
             "status": obj.status,
             "created_at": obj.created_at,
+            "updated_at": obj.updated_at,
             "items": []
         }
 

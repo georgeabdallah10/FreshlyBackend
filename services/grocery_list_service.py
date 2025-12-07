@@ -322,27 +322,28 @@ class GroceryListService:
     def sync_list_with_pantry(
         self,
         db: Session,
-        list_id: int,
-    ) -> tuple[int, int]:
+        grocery_list: GroceryList,
+    ) -> tuple[int, int, GroceryList]:
         """
-        Recalculate grocery list based on current pantry inventory.
-        Removes items now in pantry, adds items now missing.
+        ACID-safe pantry sync with updated_at tracking.
+
+        Compares grocery list items against pantry inventory and:
+        - Removes items fully covered by pantry
+        - Reduces quantities for partially covered items
 
         Args:
             db: Database session
-            list_id: Grocery list to sync
+            grocery_list: Pre-loaded GroceryList with items
 
         Returns:
-            (items_removed, items_updated)
+            (items_removed, items_updated, updated_grocery_list)
         """
-        logger.info(f"Syncing list {list_id} with pantry")
+        from datetime import datetime, timezone
 
-        # Get list with items
-        grocery_list = get_grocery_list(db, list_id, load_items=True)
-        if not grocery_list:
-            raise ValueError(f"Grocery list {list_id} not found")
+        logger.info(f"Syncing list {grocery_list.id} with pantry")
 
         # Get pantry inventory
+        # For personal lists, also check family pantry
         include_family = (grocery_list.owner_user_id is not None)
         pantry_inventory = get_pantry_inventory(
             db,
@@ -354,34 +355,38 @@ class GroceryListService:
         items_removed = 0
         items_updated = 0
 
-        # Check each item against pantry
-        for item in grocery_list.items:
+        # Process each unchecked item (copy list to allow deletion during iteration)
+        for item in list(grocery_list.items):
             if item.checked:
-                # Skip checked items
+                # Skip checked items - user already marked as purchased
                 continue
 
             key = (item.ingredient_id, item.unit_id)
-            available_qty = pantry_inventory.get(key, Decimal(0))
+            pantry_qty = pantry_inventory.get(key, Decimal(0))
             required_qty = item.quantity or Decimal(0)
 
-            if available_qty >= required_qty:
-                # Item now fully in pantry - remove from list
+            if pantry_qty >= required_qty:
+                # Fully covered by pantry - remove from grocery list
                 db.delete(item)
                 items_removed += 1
-            elif available_qty > 0:
-                # Partially in pantry - update quantity
-                item.quantity = required_qty - available_qty
-                item.note = "Quantity adjusted based on pantry inventory"
-                db.add(item)
+            elif pantry_qty > 0 and required_qty > 0:
+                # Partially covered - reduce grocery list quantity
+                item.quantity = required_qty - pantry_qty
                 items_updated += 1
 
+        # Update timestamp explicitly (triggers onupdate behavior)
+        grocery_list.updated_at = datetime.now(timezone.utc)
+
+        # Single commit - ACID transaction
         db.commit()
+        db.refresh(grocery_list)
 
         logger.info(
-            f"Sync complete: {items_removed} removed, {items_updated} updated"
+            f"Sync complete for list {grocery_list.id}: "
+            f"{items_removed} removed, {items_updated} updated"
         )
 
-        return items_removed, items_updated
+        return items_removed, items_updated, grocery_list
 
     def validate_list_access(
         self,

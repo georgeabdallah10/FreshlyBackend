@@ -1,13 +1,11 @@
 # routers/pantry_items.py
-from fastapi import APIRouter, Depends, HTTPException, status, Path, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Path, BackgroundTasks, Request, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from core.db import get_db
 from core.deps import get_current_user
 from core.rate_limit import rate_limiter_with_user
-from core.cache_headers import cache_control
-from utils.cache import get_cache, invalidate_cache_pattern
 from models.user import User
 from models.membership import FamilyMembership
 from schemas.pantry_item import PantryItemCreate, PantryItemUpdate, PantryItemOut
@@ -64,36 +62,30 @@ def _ensure_member(db: Session, user_id: int, family_id: int) -> None:
         raise HTTPException(status_code=403, detail="Not a member of this family")
 
 
+def _add_no_cache_headers(response: Response) -> None:
+    """Add Cache-Control: no-store header to response"""
+    response.headers["Cache-Control"] = "no-store"
+
+
 # ---- endpoints ----
 @router.get(
     "/family/{family_id}",
     response_model=list[PantryItemOut],
     responses={403: {"model": ErrorOut, "description": "Not a member"}},
 )
-@cache_control(max_age=60, private=True)
 async def list_for_family(
     req: Request,
-    request: Request,
+    response: Response,
     family_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _rate_limit = Depends(rate_limiter_with_user("pantry-read"))
 ):
     _ensure_member(db, current_user.id, family_id)
+    _add_no_cache_headers(response)
 
-    # Try cache first
-    cache = get_cache()
-    cache_key = f"pantry:family:{family_id}"
-    cached_items = await cache.get(cache_key)
-
-    if cached_items:
-        return [_to_out(i) for i in cached_items]
-
-    # Cache miss - fetch from database
+    # Fetch from database (no caching for pantry items)
     items = list_pantry_items(db, family_id=family_id)
-
-    # Cache for 60 seconds
-    await cache.set(cache_key, items, ttl=60)
 
     return [_to_out(i) for i in items]
 
@@ -267,23 +259,15 @@ async def delete_one_item(
 )
 async def list_my_pantry(
     req: Request,
+    response: Response,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _rate_limit = Depends(rate_limiter_with_user("pantry-read"))
 ):
-    # Try cache first
-    cache = get_cache()
-    cache_key = f"pantry:user:{current_user.id}"
-    cached_items = await cache.get(cache_key)
+    _add_no_cache_headers(response)
 
-    if cached_items:
-        return [_to_out(i) for i in cached_items]
-
-    # Cache miss - fetch from database
+    # Fetch from database (no caching for pantry items)
     items = list_pantry_items(db, owner_user_id=current_user.id)
-
-    # Cache for 60 seconds
-    await cache.set(cache_key, items, ttl=60)
 
     return [_to_out(i) for i in items]
 

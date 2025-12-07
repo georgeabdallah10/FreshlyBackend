@@ -61,20 +61,26 @@ def create_grocery_list(
     *,
     family_id: int | None = None,
     owner_user_id: int | None = None,
+    created_by_user_id: int | None = None,
     title: str | None = None,
     status: str = "draft",
     meal_plan_id: int | None = None,
 ) -> GroceryList:
-    """Create grocery list with dual-scope support"""
+    """Create grocery list with dual-scope support and creator tracking"""
     # Validate XOR constraint
     if (family_id is None) == (owner_user_id is None):
         raise ValueError(
             "Exactly one of family_id or owner_user_id must be provided"
         )
 
+    # For personal lists, creator defaults to owner
+    if owner_user_id and not created_by_user_id:
+        created_by_user_id = owner_user_id
+
     g = GroceryList(
         family_id=family_id,
         owner_user_id=owner_user_id,
+        created_by_user_id=created_by_user_id,
         title=title,
         status=status,
         meal_plan_id=meal_plan_id,
