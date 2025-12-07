@@ -479,11 +479,11 @@ async def add_from_recipe(
             family_id = None
             owner_user_id = current_user.id
 
-    # Add recipe to list
+    # Add meal to list
     try:
-        grocery_list, items_added = grocery_list_service.add_recipe_to_list(
+        grocery_list, items_added = grocery_list_service.add_meal_to_list(
             db,
-            recipe_id=data.recipe_id,
+            meal_id=data.meal_id,
             list_id=data.list_id,
             family_id=family_id,
             owner_user_id=owner_user_id,

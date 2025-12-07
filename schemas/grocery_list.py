@@ -145,8 +145,8 @@ class GroceryListItemOut(BaseModel):
 # ===== Recipe Integration Schemas =====
 
 class AddFromRecipeRequest(BaseModel):
-    """Request to add recipe to grocery list"""
-    recipe_id: int = Field(..., description="Recipe to add")
+    """Request to add meal ingredients to grocery list"""
+    meal_id: int = Field(..., description="Meal to add", alias="recipe_id")  # Accept both meal_id and recipe_id from frontend
     list_id: Optional[int] = Field(None, description="Existing list (or create new)")
 
     # For new list
@@ -156,6 +156,8 @@ class AddFromRecipeRequest(BaseModel):
 
     # Recipe scaling
     servings_multiplier: Optional[float] = Field(1.0, gt=0, description="Scale recipe quantities")
+
+    model_config = {"populate_by_name": True}
 
     @model_validator(mode="before")
     def validate_list_or_scope(cls, data: dict):
