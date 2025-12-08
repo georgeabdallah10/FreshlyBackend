@@ -8,7 +8,7 @@ from core.db import get_db
 from core.deps import get_current_user
 from core.rate_limit import rate_limiter_with_user
 from utils.cache import get_cache, invalidate_cache_pattern
-from models.user import Usersum
+from models.user import User
 from models.grocery_list import GroceryList
 from models.membership import FamilyMembership
 from schemas.grocery_list import (
