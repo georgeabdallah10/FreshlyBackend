@@ -1,5 +1,5 @@
 # models/grocery_list.py
-from sqlalchemy import Integer, Text, DateTime, ForeignKey, Numeric, Boolean, CheckConstraint, Index, func
+from sqlalchemy import Integer, Text, DateTime, ForeignKey, Numeric, Boolean, CheckConstraint, Index, func, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from core.db import Base
 from datetime import datetime
@@ -75,10 +75,43 @@ class GroceryListItem(Base):
     checked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Canonical quantity fields for unit-normalized calculations
+    canonical_quantity_needed: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 3),
+        nullable=True,
+        comment="Quantity needed in canonical unit (after pantry subtraction)"
+    )
+    canonical_unit: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+        comment="Canonical unit code (g, ml, count)"
+    )
+
+    # Phase 3: Sync and tracking fields
+    is_purchased: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default="false",
+        comment="True if the user already bought this item"
+    )
+    is_manual: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default="false",
+        comment="True if manually added by user (not generated from meal plan)"
+    )
+    source_meal_plan_id: Mapped[int | None] = mapped_column(
+        ForeignKey("meal_plans.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Meal plan that generated this item (for rebuilds)"
+    )
+
     # relationships
     grocery_list = relationship("GroceryList", back_populates="items")
     ingredient = relationship("Ingredient")
     unit = relationship("Unit")
+    source_meal_plan = relationship("MealPlan")
 
     def __repr__(self) -> str:
         return f"<GroceryListItem id={self.id} ingredient_id={self.ingredient_id} checked={self.checked}>"

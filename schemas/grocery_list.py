@@ -57,6 +57,11 @@ class GroceryListItemSummary(BaseModel):
     unit_code: Optional[str] = None
     checked: bool
     note: Optional[str] = None
+    # Phase 3 fields
+    is_purchased: Optional[bool] = False
+    is_manual: Optional[bool] = False
+    canonical_quantity_needed: Optional[Decimal] = None
+    canonical_unit: Optional[str] = None
 
 
 class GroceryListOut(BaseModel):
@@ -105,6 +110,11 @@ class GroceryListOut(BaseModel):
                     "unit_code": item.unit.code if item.unit else None,
                     "checked": item.checked,
                     "note": item.note,
+                    # Phase 3 fields
+                    "is_purchased": getattr(item, 'is_purchased', False),
+                    "is_manual": getattr(item, 'is_manual', False),
+                    "canonical_quantity_needed": getattr(item, 'canonical_quantity_needed', None),
+                    "canonical_unit": getattr(item, 'canonical_unit', None),
                 }
                 items_with_names.append(GroceryListItemSummary(**item_dict))
             data["items"] = items_with_names
@@ -144,6 +154,20 @@ class GroceryListItemOut(BaseModel):
     unit_code: Optional[str] = None
     checked: bool
     note: Optional[str] = None
+    # Phase 3 fields
+    is_purchased: Optional[bool] = False
+    is_manual: Optional[bool] = False
+    canonical_quantity_needed: Optional[Decimal] = None
+    canonical_unit: Optional[str] = None
+    source_meal_plan_id: Optional[int] = None
+
+
+class MarkPurchasedResponse(BaseModel):
+    """Response after marking a grocery item as purchased"""
+    grocery_item: GroceryListItemOut
+    pantry_quantity_added: Optional[Decimal] = None
+    pantry_unit: Optional[str] = None
+    message: str
 
 
 # ===== Recipe Integration Schemas =====
@@ -197,6 +221,13 @@ class SyncWithPantryResponse(BaseModel):
     """Response after syncing list with pantry"""
     items_removed: int
     items_updated: int
+    message: str
+
+
+class RebuildFromMealPlanResponse(BaseModel):
+    """Response after rebuilding grocery list from meal plan"""
+    grocery_list: GroceryListOut
+    items_count: int
     message: str
 
 

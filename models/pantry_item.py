@@ -22,11 +22,23 @@ class PantryItem(Base):
     category: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     image_url: Mapped[str | None] = mapped_column(String(512), nullable=True)  # Generated image URL
 
+    # Normalized quantity fields for unit-agnostic comparisons
+    canonical_quantity: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 3),
+        nullable=True,
+        comment="Quantity normalized to ingredient's canonical unit"
+    )
+    canonical_unit: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+        comment="Canonical unit code (g, ml, count)"
+    )
+
     # relationships
     family = relationship("Family", back_populates="pantry_items")
-    
+
     owner = relationship("User", back_populates="personal_pantry_items")
-    
+
     owner_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=True,
@@ -44,4 +56,4 @@ class PantryItem(Base):
         # Composite indexes for common query patterns
         Index('idx_pantry_family_expires', 'family_id', 'expires_at'),
         Index('idx_pantry_owner_expires', 'owner_user_id', 'expires_at'),
-    )   
+    )

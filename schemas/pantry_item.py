@@ -12,7 +12,7 @@ class PantryItemCreate(BaseModel):
 
     family_id: Optional[int] = None
     scope: Optional[Literal["personal", "family"]] = None
-    category: str | None = None   # <— add
+    category: str | None = None
 
     ingredient_id: Optional[int] = None
     name: Optional[str] = Field(None, alias="ingredient_name")
@@ -48,7 +48,7 @@ class PantryItemUpsert(BaseModel):
     )
     unit: Optional[str] = None
     expires_at: Optional[date] = Field(None, description="Optional expiration date")
-    category: str | None = None   # <— add
+    category: str | None = None
 
 
 class PantryItemUpdate(BaseModel):
@@ -56,9 +56,9 @@ class PantryItemUpdate(BaseModel):
     model_config = {"populate_by_name": True}
     name: Optional[str] = Field(None, alias="ingredient_name")
     quantity: Optional[Decimal] = Field(None, ge=0)
-    unit: Optional[str] = None    
+    unit: Optional[str] = None
     expires_at: Optional[date] = None
-    category: str | None = None   # <— add
+    category: str | None = None
 
 
 class PantryItemOut(BaseModel):
@@ -68,7 +68,7 @@ class PantryItemOut(BaseModel):
     family_id: Optional[int]
     owner_user_id: Optional[int]
     scope: Literal["personal", "family"]
-    category: str | None = None   # <— add
+    category: str | None = None
     ingredient_name: str | None = None
     image_url: str | None = None  # Generated image URL
 
@@ -78,6 +78,11 @@ class PantryItemOut(BaseModel):
     expires_at: Optional[date] = None
     created_at: datetime
     updated_at: datetime
+
+    # Normalized quantity fields
+    canonical_quantity: Optional[Decimal] = None
+    canonical_unit: Optional[str] = None
+
     @classmethod
     def from_orm(cls, obj):
         scope = "family" if obj.family_id is not None else "personal"

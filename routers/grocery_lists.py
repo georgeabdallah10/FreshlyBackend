@@ -8,7 +8,7 @@ from core.db import get_db
 from core.deps import get_current_user
 from core.rate_limit import rate_limiter_with_user
 from utils.cache import get_cache, invalidate_cache_pattern
-from models.user import User
+from models.user import Usersum
 from models.grocery_list import GroceryList
 from models.membership import FamilyMembership
 from schemas.grocery_list import (
@@ -21,6 +21,8 @@ from schemas.grocery_list import (
     AddFromRecipeRequest,
     AddFromRecipeResponse,
     SyncWithPantryResponse,
+    RebuildFromMealPlanResponse,
+    MarkPurchasedResponse,
     NormalizeIngredientRequest,
     NormalizedIngredientOut,
     MissingIngredient,
@@ -395,6 +397,76 @@ async def toggle_item_check(
     return GroceryListItemOut.model_validate(updated_item, from_attributes=True)
 
 
+@router.post(
+    "/items/{item_id}/mark-purchased",
+    response_model=MarkPurchasedResponse,
+    responses={403: {"model": ErrorOut}, 404: {"model": ErrorOut}},
+)
+async def mark_item_purchased(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _rate_limit = Depends(rate_limiter_with_user("grocery-write")),
+):
+    """
+    Mark a grocery list item as purchased.
+
+    This endpoint:
+    1. Sets is_purchased = True on the grocery item
+    2. Adds the canonical quantity to the user's pantry
+    3. Returns the updated item and pantry information
+    """
+    try:
+        grocery_item, pantry_item = grocery_list_service.mark_item_purchased(
+            db,
+            grocery_list_item_id=item_id,
+            user_id=current_user.id,
+        )
+    except ValueError as e:
+        error_msg = str(e)
+        if "not found" in error_msg.lower():
+            raise HTTPException(status_code=404, detail=error_msg)
+        elif "not authorized" in error_msg.lower():
+            raise HTTPException(status_code=403, detail=error_msg)
+        else:
+            raise HTTPException(status_code=400, detail=error_msg)
+
+    # Invalidate caches
+    g = get_grocery_list(db, grocery_item.grocery_list_id)
+    if g:
+        if g.family_id:
+            await invalidate_cache_pattern(f"grocery_lists:family:{g.family_id}")
+            await invalidate_cache_pattern(f"pantry:family:{g.family_id}")
+        if g.owner_user_id:
+            await invalidate_cache_pattern(f"grocery_lists:user:{g.owner_user_id}")
+            await invalidate_cache_pattern(f"pantry:user:{g.owner_user_id}")
+
+    # Build response
+    item_out = GroceryListItemOut(
+        id=grocery_item.id,
+        grocery_list_id=grocery_item.grocery_list_id,
+        ingredient_id=grocery_item.ingredient_id,
+        ingredient_name=grocery_item.ingredient.name if grocery_item.ingredient else None,
+        quantity=grocery_item.quantity,
+        unit_id=grocery_item.unit_id,
+        unit_code=grocery_item.unit.code if grocery_item.unit else None,
+        checked=grocery_item.checked,
+        note=grocery_item.note,
+        is_purchased=grocery_item.is_purchased,
+        is_manual=grocery_item.is_manual,
+        canonical_quantity_needed=grocery_item.canonical_quantity_needed,
+        canonical_unit=grocery_item.canonical_unit,
+        source_meal_plan_id=grocery_item.source_meal_plan_id,
+    )
+
+    return MarkPurchasedResponse(
+        grocery_item=item_out,
+        pantry_quantity_added=grocery_item.canonical_quantity_needed,
+        pantry_unit=grocery_item.canonical_unit,
+        message=f"Item marked as purchased and added to pantry",
+    )
+
+
 @router.delete(
     "/items/{item_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -579,7 +651,66 @@ async def sync_with_pantry(
     )
 
 
-# ===== AI Ingredient Normalization Endpoint =====
+# ===== Meal Plan Integration Endpoints =====
+
+@router.post(
+    "/rebuild-from-meal-plan/{meal_plan_id}",
+    response_model=RebuildFromMealPlanResponse,
+    responses={
+        403: {"model": ErrorOut, "description": "User not authorized to access this meal plan"},
+        404: {"model": ErrorOut, "description": "Meal plan not found"},
+    },
+)
+async def rebuild_from_meal_plan(
+    meal_plan_id: int,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _rate_limit = Depends(rate_limiter_with_user("grocery-write")),
+):
+    """
+    Rebuild grocery list from meal plan using canonical unit calculations.
+
+    This endpoint:
+    1. Calculates total canonical ingredient requirements from all meals in the plan
+    2. Compares against canonical pantry quantities
+    3. Computes remaining quantities needed
+    4. Creates grocery list items with both canonical and display units
+
+    Only items where the user still needs to buy are included in the list.
+    """
+    _add_no_cache_headers(response)
+
+    try:
+        grocery_list = grocery_list_service.rebuild_grocery_list_from_meal_plan(
+            db,
+            meal_plan_id=meal_plan_id,
+            user_id=current_user.id,
+        )
+    except ValueError as e:
+        # Check if it's a not found or authorization error
+        error_msg = str(e)
+        if "not found" in error_msg.lower():
+            raise HTTPException(status_code=404, detail=error_msg)
+        elif "not authorized" in error_msg.lower():
+            raise HTTPException(status_code=403, detail=error_msg)
+        else:
+            raise HTTPException(status_code=400, detail=error_msg)
+
+    # Invalidate cache
+    if grocery_list.family_id:
+        await invalidate_cache_pattern(f"grocery_lists:family:{grocery_list.family_id}")
+    if grocery_list.owner_user_id:
+        await invalidate_cache_pattern(f"grocery_lists:user:{grocery_list.owner_user_id}")
+
+    items_count = len(grocery_list.items) if grocery_list.items else 0
+
+    return RebuildFromMealPlanResponse(
+        grocery_list=GroceryListOut.from_orm_with_scope(grocery_list),
+        items_count=items_count,
+        message=f"Rebuilt grocery list with {items_count} items from meal plan",
+    )
+
 
 @router.post(
     "/ingredients/normalize",
@@ -602,3 +733,46 @@ async def normalize_ingredient(
             status_code=500,
             detail=f"Ingredient normalization failed: {str(e)}"
         )
+
+
+# ===== Debug Endpoints =====
+
+@router.get(
+    "/debug/meal-plan/{meal_plan_id}",
+    responses={
+        403: {"model": ErrorOut, "description": "User not authorized to access this meal plan"},
+        404: {"model": ErrorOut, "description": "Meal plan not found"},
+    },
+)
+async def debug_meal_plan_requirements(
+    meal_plan_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _rate_limit = Depends(rate_limiter_with_user("grocery-read")),
+):
+    """
+    Debug endpoint to inspect meal plan requirements and pantry availability.
+
+    Returns detailed breakdown of:
+    - Total ingredients needed from meal plan
+    - Current pantry availability
+    - Remaining to buy for each ingredient
+
+    Useful for troubleshooting grocery list calculations.
+    """
+    try:
+        debug_info = grocery_list_service.debug_meal_plan_requirements(
+            db,
+            meal_plan_id=meal_plan_id,
+            user_id=current_user.id,
+        )
+    except ValueError as e:
+        error_msg = str(e)
+        if "not found" in error_msg.lower():
+            raise HTTPException(status_code=404, detail=error_msg)
+        elif "not authorized" in error_msg.lower():
+            raise HTTPException(status_code=403, detail=error_msg)
+        else:
+            raise HTTPException(status_code=400, detail=error_msg)
+
+    return debug_info

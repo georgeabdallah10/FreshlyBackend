@@ -19,9 +19,16 @@ from crud.pantry_items import (
 )
 from crud.ingredients import get_ingredient
 from services.pantry_image_service import pantry_image_service
+from services.grocery_list_service import grocery_list_service
+from utils.cache import invalidate_cache_pattern
+from core.db import SessionLocal
 
 # at top of routers/pantry_items.py
 from typing import List
+import logging
+
+logger = logging.getLogger(__name__)
+
 from models.pantry_item import PantryItem
 from schemas.pantry_item import PantryItemOut  # whatever your output schema is called
 
@@ -42,6 +49,8 @@ def _to_out(item: PantryItem) -> PantryItemOut:
         image_url=item.image_url,  # Include generated image URL
         created_at=item.created_at,
         updated_at=item.updated_at,
+        canonical_quantity=item.canonical_quantity,
+        canonical_unit=item.canonical_unit,
     )
 
 router = APIRouter(prefix="/pantry-items", tags=["pantry_items"])
@@ -65,6 +74,23 @@ def _ensure_member(db: Session, user_id: int, family_id: int) -> None:
 def _add_no_cache_headers(response: Response) -> None:
     """Add Cache-Control: no-store header to response"""
     response.headers["Cache-Control"] = "no-store"
+
+
+def _recompute_grocery_lists_background(user_id: int) -> None:
+    """
+    Background task to recompute grocery lists after pantry changes.
+
+    Creates a new database session since background tasks run outside
+    the request context.
+    """
+    db = SessionLocal()
+    try:
+        grocery_list_service.recompute_grocery_list_for_user(db, user_id)
+        logger.info(f"Recomputed grocery lists for user {user_id} after pantry change")
+    except Exception as e:
+        logger.error(f"Failed to recompute grocery lists for user {user_id}: {e}")
+    finally:
+        db.close()
 
 
 # ---- endpoints ----
@@ -183,6 +209,7 @@ async def update_one_item(
     req: Request,
     item_id: int,
     data: PantryItemUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _rate_limit = Depends(rate_limiter_with_user("pantry-write"))
@@ -209,6 +236,12 @@ async def update_one_item(
     if item.owner_user_id:
         await invalidate_cache_pattern(f"pantry:user:{item.owner_user_id}")
 
+    # Phase 3: Trigger grocery list recompute in background
+    background_tasks.add_task(
+        _recompute_grocery_lists_background,
+        current_user.id
+    )
+
     return _to_out(updated_item)
 
 
@@ -223,6 +256,7 @@ async def update_one_item(
 async def delete_one_item(
     req: Request,
     item_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _rate_limit = Depends(rate_limiter_with_user("pantry-write"))
@@ -250,6 +284,12 @@ async def delete_one_item(
         await invalidate_cache_pattern(f"pantry:family:{family_id}")
     if owner_user_id:
         await invalidate_cache_pattern(f"pantry:user:{owner_user_id}")
+
+    # Phase 3: Trigger grocery list recompute in background
+    background_tasks.add_task(
+        _recompute_grocery_lists_background,
+        current_user.id
+    )
 
     return None
 
