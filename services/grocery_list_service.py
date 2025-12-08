@@ -343,14 +343,30 @@ class GroceryListService:
         logger.info(f"Syncing list {grocery_list.id} with pantry")
 
         # Get pantry inventory
-        # For personal lists, also check family pantry
-        include_family = (grocery_list.owner_user_id is not None)
-        pantry_inventory = get_pantry_inventory(
-            db,
-            family_id=grocery_list.family_id,
-            owner_user_id=grocery_list.owner_user_id,
-            include_family_for_user=include_family,
-        )
+        # For personal lists, sync against family pantry only (not personal)
+        # For family lists, sync against family pantry
+        if grocery_list.owner_user_id is not None:
+            # Personal list - sync against family pantry only
+            membership = db.query(FamilyMembership).filter(
+                FamilyMembership.user_id == grocery_list.owner_user_id
+            ).first()
+            if membership:
+                pantry_inventory = get_pantry_inventory(
+                    db,
+                    family_id=membership.family_id,
+                )
+            else:
+                # User not in any family - fall back to personal pantry
+                pantry_inventory = get_pantry_inventory(
+                    db,
+                    owner_user_id=grocery_list.owner_user_id,
+                )
+        else:
+            # Family list - sync against family pantry
+            pantry_inventory = get_pantry_inventory(
+                db,
+                family_id=grocery_list.family_id,
+            )
 
         items_removed = 0
         items_updated = 0

@@ -35,3 +35,4 @@ from .oauth_account import OAuthAccount  # noqa: F401
 from .notification import Notification
 from .meal_share_request import MealShareRequest
 
+
