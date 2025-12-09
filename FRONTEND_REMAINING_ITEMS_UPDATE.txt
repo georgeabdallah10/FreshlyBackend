@@ -1,0 +1,138 @@
+FRONTEND UPDATE: Sync Pantry API Response Now Includes remaining_items
+
+SUMMARY:
+The POST /grocery-lists/{list_id}/sync-pantry endpoint has been updated to:
+1. Return a new field called remaining_items in the response
+2. Properly parse notes like "2 cups" into quantity and unit values
+3. Subtract pantry quantities from grocery list quantities
+4. Remove items fully covered by pantry, reduce partially covered items
+
+BACKEND CHANGE:
+The sync-pantry endpoint now returns an enhanced response with the following structure:
+
+OLD RESPONSE FORMAT:
+{
+  "items_removed": 0,
+  "items_updated": 0,
+  "message": "Synced list: 0 items removed, 0 updated"
+}
+
+NEW RESPONSE FORMAT:
+{
+  "items_removed": 1,
+  "items_updated": 1,
+  "remaining_items": [
+    {
+      "ingredient_id": 79,
+      "ingredient_name": "Eggs",
+      "quantity": 8,
+      "unit_code": "pc",
+      "canonical_quantity": 8,
+      "canonical_unit": "pc",
+      "note": "20 eggs"
+    },
+    {
+      "ingredient_id": 43,
+      "ingredient_name": "diced cooked chicken",
+      "quantity": 2,
+      "unit_code": "cup",
+      "canonical_quantity": 2,
+      "canonical_unit": "cup",
+      "note": "2 cups"
+    }
+  ],
+  "message": "Synced list: 1 items removed, 1 updated, 2 items remaining"
+}
+
+TYPESCRIPT TYPE UPDATES NEEDED:
+
+1. Add a new RemainingItem interface:
+
+interface RemainingItem {
+  ingredient_id: number;
+  ingredient_name: string;
+  quantity: number | null;
+  unit_code: string | null;
+  canonical_quantity: number | null;
+  canonical_unit: string | null;
+  note: string | null;
+}
+
+2. Update the SyncWithPantryResponse interface:
+
+interface SyncWithPantryResponse {
+  items_removed: number;
+  items_updated: number;
+  remaining_items: RemainingItem[];
+  message: string;
+}
+
+IMPORTANT NOTES ABOUT remaining_items:
+
+1. The quantity field now contains actual numeric values after pantry subtraction:
+   - If needed 20 eggs and pantry has 12, quantity will be 8
+   - The note field preserves the original amount text (e.g., "20 eggs")
+
+2. The sync process:
+   - Parses notes like "2 cups" into quantity=2, unit_code="cup"
+   - Compares grocery items with pantry by ingredient_id
+   - Subtracts pantry quantities from grocery quantities
+   - Removes items fully covered by pantry (items_removed count)
+   - Reduces partially covered items (items_updated count)
+
+3. The remaining_items array contains ALL items that still need to be purchased:
+   - Items not found in pantry at all (full quantity)
+   - Items partially covered by pantry (reduced quantity)
+   - Items that could not be compared (different units)
+
+FRONTEND IMPLEMENTATION SUGGESTIONS:
+
+1. After calling sync-pantry, you can use remaining_items to immediately update the UI without needing to re-fetch the grocery list.
+
+2. Example display logic for each remaining item:
+
+function getDisplayQuantity(item: RemainingItem): string {
+  if (item.quantity !== null && item.unit_code !== null) {
+    return `${item.quantity} ${item.unit_code}`;
+  }
+  if (item.note) {
+    return item.note;
+  }
+  return ""; // No quantity info available
+}
+
+3. After sync, you may want to show a summary like:
+   - "Removed 3 items already in pantry"
+   - "Updated quantities for 2 items"
+   - "5 items remaining to buy"
+
+4. Consider showing a toast/notification with the sync results using the message field.
+
+EXAMPLE API CALL:
+
+const response = await fetch(`/api/grocery-lists/${listId}/sync-pantry`, {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  }
+});
+
+const data: SyncWithPantryResponse = await response.json();
+
+console.log(`Sync complete: ${data.items_removed} removed, ${data.items_updated} updated`);
+console.log(`${data.remaining_items.length} items still to buy:`);
+
+data.remaining_items.forEach(item => {
+  const qty = getDisplayQuantity(item);
+  console.log(`  - ${item.ingredient_name}: ${qty}`);
+});
+
+FILES TO UPDATE:
+1. API types/interfaces file (add RemainingItem, update SyncWithPantryResponse)
+2. Grocery list service/API client (handle new response format)
+3. Grocery list UI components (optionally use remaining_items for immediate UI update)
+4. Any sync button handlers (show enhanced feedback with item counts)
+
+BACKWARD COMPATIBILITY:
+The new remaining_items field is additive. The existing items_removed, items_updated, and message fields are unchanged. If your frontend currently ignores unknown fields, it should continue to work without changes, but you will miss the new remaining_items data.

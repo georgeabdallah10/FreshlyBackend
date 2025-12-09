@@ -187,6 +187,77 @@ def get_pantry_totals(
     return totals
 
 
+def get_pantry_totals_flexible(
+    db: Session,
+    family_id: int | None = None,
+    owner_user_id: int | None = None,
+) -> dict[int, dict]:
+    """
+    Get pantry inventory totals with both canonical and display quantities.
+    
+    This is a more flexible version that includes items even without canonical
+    quantities, allowing comparison using display units when canonical aren't available.
+
+    Args:
+        db: Database session
+        family_id: Family scope (optional)
+        owner_user_id: User scope for personal pantry (optional)
+
+    Returns:
+        Dict mapping ingredient_id -> {
+            'canonical_quantity': Decimal | None,
+            'canonical_unit': str | None,
+            'display_quantity': Decimal | None,
+            'display_unit': str | None,
+        }
+    """
+    logger.info(f"Getting flexible pantry totals for family={family_id}, user={owner_user_id}")
+
+    query = db.query(PantryItem)
+
+    if family_id is not None:
+        query = query.filter(PantryItem.family_id == family_id)
+    elif owner_user_id is not None:
+        query = query.filter(PantryItem.owner_user_id == owner_user_id)
+
+    items = query.all()
+
+    # Aggregate by ingredient_id
+    totals: dict[int, dict] = {}
+
+    for item in items:
+        if item.ingredient_id is None:
+            continue
+
+        ing_id = item.ingredient_id
+
+        if ing_id not in totals:
+            totals[ing_id] = {
+                'canonical_quantity': Decimal(0),
+                'canonical_unit': None,
+                'display_quantity': Decimal(0),
+                'display_unit': None,
+            }
+
+        # Add canonical quantities if available
+        if item.canonical_quantity is not None and item.canonical_unit:
+            if totals[ing_id]['canonical_unit'] is None:
+                totals[ing_id]['canonical_unit'] = item.canonical_unit
+            if totals[ing_id]['canonical_unit'] == item.canonical_unit:
+                totals[ing_id]['canonical_quantity'] += item.canonical_quantity
+
+        # Add display quantities
+        if item.quantity is not None:
+            display_unit = item.unit or 'count'
+            if totals[ing_id]['display_unit'] is None:
+                totals[ing_id]['display_unit'] = display_unit
+            if totals[ing_id]['display_unit'] == display_unit:
+                totals[ing_id]['display_quantity'] += item.quantity
+
+    logger.info(f"Found flexible pantry totals for {len(totals)} ingredients")
+    return totals
+
+
 def compute_remaining_to_buy(
     needed: dict[int, tuple[Decimal, str]],
     available: dict[int, tuple[Decimal, str]],

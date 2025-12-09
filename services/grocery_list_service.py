@@ -350,11 +350,11 @@ class GroceryListService:
             (items_removed, items_updated, remaining_items, updated_grocery_list)
         """
         from datetime import datetime, timezone
-        from services.grocery_calculator import get_pantry_totals, format_for_display
+        from services.grocery_calculator import get_pantry_totals_flexible, format_for_display, parse_amount_string
         from services.unit_normalizer import try_normalize_quantity
         from crud.ingredients import get_ingredient
 
-        logger.info(f"Syncing list {grocery_list.id} with pantry using canonical units")
+        logger.info(f"Syncing list {grocery_list.id} with pantry using flexible unit comparison")
 
         # Determine pantry scope
         # For personal lists with family membership, sync against family pantry
@@ -375,8 +375,8 @@ class GroceryListService:
             # Family list
             family_id = grocery_list.family_id
 
-        # Step 3 & 4: Get pantry totals using canonical units
-        pantry_totals = get_pantry_totals(
+        # Get flexible pantry totals (includes both canonical and display quantities)
+        pantry_totals = get_pantry_totals_flexible(
             db,
             family_id=family_id,
             owner_user_id=owner_user_id,
@@ -405,6 +405,10 @@ class GroceryListService:
             grocery_canonical_qty = item.canonical_quantity_needed
             grocery_canonical_unit = item.canonical_unit
             has_valid_canonical = grocery_canonical_qty is not None and grocery_canonical_qty > 0
+            
+            # Store original display values for later
+            original_display_qty = item.quantity
+            original_display_unit = item.unit.code if item.unit else None
 
             # Try to normalize if we don't have valid canonical values
             if not has_valid_canonical and item.quantity is not None and item.quantity > 0:
@@ -422,8 +426,49 @@ class GroceryListService:
                         item.canonical_unit = grocery_canonical_unit
                         db.add(item)
 
-            # If still no valid canonical (e.g., items with note-only quantity like "2 cups"),
-            # we can't compare with pantry - add to remaining as-is
+            # If still no valid canonical, try to parse from note field (e.g., "2 cups")
+            if not has_valid_canonical and item.note:
+                parsed_qty, parsed_unit = parse_amount_string(item.note)
+                if parsed_qty is not None and parsed_qty > 0 and parsed_unit:
+                    # Store original display values from note
+                    original_display_qty = Decimal(str(parsed_qty))
+                    original_display_unit = parsed_unit
+                    
+                    # Update item with parsed values (even if normalization fails)
+                    item.quantity = original_display_qty
+                    db.add(item)
+                    
+                    # Try to normalize the parsed values
+                    if ingredient:
+                        normalized_qty, normalized_unit = try_normalize_quantity(
+                            ingredient, float(parsed_qty), parsed_unit
+                        )
+                        if normalized_qty is not None and normalized_qty > 0:
+                            grocery_canonical_qty = Decimal(str(normalized_qty))
+                            grocery_canonical_unit = normalized_unit
+                            has_valid_canonical = True
+                            item.canonical_quantity_needed = grocery_canonical_qty
+                            item.canonical_unit = grocery_canonical_unit
+                            db.add(item)
+                            logger.info(
+                                f"Parsed and normalized '{item.note}' for {ingredient_name}: "
+                                f"{parsed_qty} {parsed_unit} -> {grocery_canonical_qty} {grocery_canonical_unit}"
+                            )
+                        else:
+                            # Normalization failed but we still have parsed display values
+                            # Use display values for comparison
+                            grocery_canonical_qty = original_display_qty
+                            grocery_canonical_unit = parsed_unit
+                            has_valid_canonical = True
+                            item.canonical_quantity_needed = grocery_canonical_qty
+                            item.canonical_unit = grocery_canonical_unit
+                            db.add(item)
+                            logger.info(
+                                f"Parsed '{item.note}' for {ingredient_name}: using display units "
+                                f"{parsed_qty} {parsed_unit}"
+                            )
+
+            # If still no valid values, add to remaining as-is (can't compare)
             if not has_valid_canonical:
                 logger.debug(
                     f"Item {ingredient_name} has no canonical quantity - keeping as remaining "
@@ -443,10 +488,21 @@ class GroceryListService:
             # Step 4: Get pantry availability for this ingredient
             pantry_qty = Decimal(0)
             pantry_unit = None
+            
             if item.ingredient_id in pantry_totals:
-                pantry_qty, pantry_unit = pantry_totals[item.ingredient_id]
+                pantry_data = pantry_totals[item.ingredient_id]
+                
+                # Try canonical first, then fall back to display
+                if pantry_data['canonical_quantity'] and pantry_data['canonical_unit']:
+                    pantry_qty = pantry_data['canonical_quantity']
+                    pantry_unit = pantry_data['canonical_unit']
+                elif pantry_data['display_quantity'] and pantry_data['display_unit']:
+                    # Use display quantities for comparison
+                    pantry_qty = pantry_data['display_quantity']
+                    pantry_unit = pantry_data['display_unit']
 
             # Step 5: Calculate remaining
+            # Compare using matching units (canonical or display)
             if pantry_unit and grocery_canonical_unit and pantry_unit != grocery_canonical_unit:
                 # Unit mismatch - log warning and keep item as-is
                 logger.warning(
@@ -500,8 +556,12 @@ class GroceryListService:
                 )
             else:
                 # Not in pantry at all (remaining_qty == grocery_canonical_qty) - keep as-is, add to remaining
-                display_qty = item.quantity
-                display_unit = item.unit.code if item.unit else grocery_canonical_unit
+                # Use original display values or format from canonical
+                if original_display_qty is not None:
+                    display_qty = original_display_qty
+                    display_unit = original_display_unit or grocery_canonical_unit
+                else:
+                    display_qty, display_unit = format_for_display(grocery_canonical_qty, grocery_canonical_unit)
                 
                 remaining_items.append({
                     "ingredient_id": item.ingredient_id,
