@@ -9,6 +9,7 @@ Handles business logic for grocery list operations including:
 """
 import logging
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from decimal import Decimal
 from typing import Optional, TYPE_CHECKING
 
@@ -26,6 +27,7 @@ from crud.ingredients import get_ingredient_by_name, create_ingredient
 from models.grocery_list import GroceryList, GroceryListItem
 from models.membership import FamilyMembership
 from models.pantry_item import PantryItem
+from models.ingredient import Ingredient
 
 if TYPE_CHECKING:
     from models.grocery_list import GroceryListItem
@@ -264,6 +266,142 @@ class GroceryListService:
 
         return grocery_list, items_added
 
+    def _find_best_matching_ingredient(
+        self,
+        db: Session,
+        ingredient_name: str,
+    ) -> Ingredient | None:
+        """
+        Find the best matching ingredient by name using fuzzy matching.
+        
+        Tries in order:
+        1. Exact match (case-insensitive)
+        2. Normalized match (removes quantity words, units, prep methods)
+        3. Singular/plural match
+        4. Substring match (prefers shorter base ingredients)
+        
+        Returns the best match or None if no good match found.
+        """
+        from models.ingredient import Ingredient
+        
+        # Try exact match first (fast - uses index)
+        ingredient = get_ingredient_by_name(db, ingredient_name)
+        if ingredient:
+            return ingredient
+        
+        # Normalize the input name
+        normalized_input = self._normalize_ingredient_name(ingredient_name)
+        
+        # Try case-insensitive match on normalized input
+        exact_match = db.query(Ingredient).filter(
+            func.lower(Ingredient.name) == normalized_input
+        ).first()
+        if exact_match:
+            logger.info(f"Matched '{ingredient_name}' to '{exact_match.name}' (case-insensitive)")
+            return exact_match
+        
+        # Get ingredients with similar names (limit to 100 for performance)
+        # Use LIKE to filter candidates
+        first_word = normalized_input.split()[0] if normalized_input else ''
+        if len(first_word) < 3:
+            # Too short, don't fuzzy match
+            return None
+        
+        candidates = db.query(Ingredient).filter(
+            func.lower(Ingredient.name).like(f'%{first_word}%')
+        ).limit(100).all()
+        
+        if not candidates:
+            return None
+        
+        # Track best matches by priority
+        exact_normalized_match = None
+        singular_plural_match = None
+        substring_matches = []
+        
+        for ing in candidates:
+            normalized_existing = self._normalize_ingredient_name(ing.name)
+            
+            # Priority 1: Exact normalized match
+            if normalized_input == normalized_existing:
+                exact_normalized_match = ing
+                break
+            
+            # Priority 2: Singular/plural match
+            if (self._to_singular(normalized_input) == self._to_singular(normalized_existing)):
+                if not singular_plural_match:
+                    singular_plural_match = ing
+            
+            # Priority 3: Substring match (one contains the other)
+            if normalized_input in normalized_existing:
+                # Input is shorter - prefer the shorter ingredient (more generic)
+                substring_matches.append((ing, len(normalized_existing)))
+            elif normalized_existing in normalized_input:
+                # Existing is shorter - prefer it
+                substring_matches.append((ing, len(normalized_existing)))
+        
+        # Return best match
+        if exact_normalized_match:
+            logger.info(f"Fuzzy matched '{ingredient_name}' to '{exact_normalized_match.name}' (normalized)")
+            return exact_normalized_match
+        
+        if singular_plural_match:
+            logger.info(f"Fuzzy matched '{ingredient_name}' to '{singular_plural_match.name}' (singular/plural)")
+            return singular_plural_match
+        
+        if substring_matches:
+            # Sort by length - prefer shorter (more generic) ingredients
+            substring_matches.sort(key=lambda x: x[1])
+            best_match = substring_matches[0][0]
+            logger.info(f"Fuzzy matched '{ingredient_name}' to '{best_match.name}' (substring)")
+            return best_match
+        
+        return None
+    
+    def _to_singular(self, word: str) -> str:
+        """Convert word to singular form (simple heuristic)."""
+        if word.endswith('ies'):
+            return word[:-3] + 'y'
+        if word.endswith('es'):
+            return word[:-2]
+        if word.endswith('s') and not word.endswith('ss'):
+            return word[:-1]
+        return word
+    
+    def _normalize_ingredient_name(self, name: str) -> str:
+        """
+        Normalize ingredient name by removing quantity words, units, and prep methods.
+        
+        Examples:
+        - "2 chicken breasts (1 lb)" -> "chicken breasts"
+        - "1 cup greek yogurt (8 oz)" -> "greek yogurt"
+        - "diced cooked chicken" -> "chicken"
+        """
+        import re
+        
+        name = name.lower().strip()
+        
+        # Remove quantity numbers and fractions at start
+        name = re.sub(r'^\d+(\.\d+)?(\s*/\s*\d+)?\s+', '', name)
+        
+        # Remove units in parentheses
+        name = re.sub(r'\s*\([^)]*\)', '', name)
+        
+        # Remove common prep words
+        prep_words = [
+            'diced', 'chopped', 'sliced', 'minced', 'grated', 'shredded',
+            'cooked', 'raw', 'fresh', 'frozen', 'canned', 'dried',
+            'halved', 'quartered', 'whole', 'ground', 'crushed',
+            'thinly', 'finely', 'roughly', 'crumbled'
+        ]
+        for word in prep_words:
+            name = re.sub(rf'\b{word}\b\s*', '', name)
+        
+        # Remove extra whitespace
+        name = ' '.join(name.split())
+        
+        return name.strip()
+
     def _add_meal_ingredients_to_list(
         self,
         db: Session,
@@ -272,7 +410,7 @@ class GroceryListService:
     ) -> int:
         """
         Add meal ingredients to grocery list.
-        Looks up or creates ingredients by name, then adds to list.
+        Uses fuzzy matching to find existing ingredients before creating new ones.
         """
         from models.grocery_list import GroceryListItem
 
@@ -284,12 +422,14 @@ class GroceryListService:
             if not ingredient_name:
                 continue
 
-            # Look up or create ingredient by name
-            ingredient = get_ingredient_by_name(db, ingredient_name)
+            # Try to find best matching ingredient using fuzzy matching
+            ingredient = self._find_best_matching_ingredient(db, ingredient_name)
+            
             if not ingredient:
-                # Create new ingredient
+                # No match found - create new ingredient
                 try:
                     ingredient = create_ingredient(db, name=ingredient_name, category=None)
+                    logger.info(f"Created new ingredient: '{ingredient_name}'")
                 except Exception as e:
                     logger.warning(f"Failed to create ingredient '{ingredient_name}': {e}")
                     # Try to fetch again in case of race condition
