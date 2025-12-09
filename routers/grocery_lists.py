@@ -26,6 +26,7 @@ from schemas.grocery_list import (
     NormalizeIngredientRequest,
     NormalizedIngredientOut,
     MissingIngredient,
+    RemainingItem,
 )
 from crud.grocery_lists import (
     list_grocery_lists,
@@ -621,9 +622,16 @@ async def sync_with_pantry(
     """
     Sync grocery list with current pantry inventory (creator only).
 
-    This endpoint removes or reduces quantities of items that are now
-    available in the user's pantry. Only the list creator can perform
-    this operation to prevent unauthorized modifications.
+    This endpoint:
+    1. Gets the full grocery list with each item's quantity and unit
+    2. Normalizes units for each grocery item to canonical units
+    3. Gets pantry items (family pantry if user is in family, else personal)
+    4. Normalizes pantry item units to canonical units
+    5. Calculates what's remaining to buy for each item
+    6. Removes items fully covered by pantry, reduces partially covered items
+    7. Returns items_removed, items_updated, and remaining_items
+
+    Only the list creator can perform this operation.
     """
     _add_no_cache_headers(response)
 
@@ -638,16 +646,37 @@ async def sync_with_pantry(
     _ensure_list_creator(g, current_user.id)
 
     try:
-        items_removed, items_updated, updated_list = grocery_list_service.sync_list_with_pantry(
+        items_removed, items_updated, remaining_items_data, updated_list = grocery_list_service.sync_list_with_pantry(
             db, g
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Invalidate caches
+    if g.family_id:
+        await invalidate_cache_pattern(f"grocery_lists:family:{g.family_id}")
+    if g.owner_user_id:
+        await invalidate_cache_pattern(f"grocery_lists:user:{g.owner_user_id}")
+
+    # Build remaining items list
+    remaining_items = [
+        RemainingItem(
+            ingredient_id=item["ingredient_id"],
+            ingredient_name=item["ingredient_name"],
+            quantity=item.get("quantity"),
+            unit_code=item.get("unit_code"),
+            canonical_quantity=item.get("canonical_quantity"),
+            canonical_unit=item.get("canonical_unit"),
+            note=item.get("note"),
+        )
+        for item in remaining_items_data
+    ]
+
     return SyncWithPantryResponse(
         items_removed=items_removed,
         items_updated=items_updated,
-        message=f"Synced list: {items_removed} items removed, {items_updated} updated",
+        remaining_items=remaining_items,
+        message=f"Synced list: {items_removed} items removed, {items_updated} updated, {len(remaining_items)} items remaining",
     )
 
 

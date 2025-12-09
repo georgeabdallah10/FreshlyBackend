@@ -217,10 +217,22 @@ class AddFromRecipeResponse(BaseModel):
     message: str
 
 
+class RemainingItem(BaseModel):
+    """Item remaining to be purchased after sync"""
+    ingredient_id: int
+    ingredient_name: str
+    quantity: Optional[Decimal] = None
+    unit_code: Optional[str] = None
+    canonical_quantity: Optional[Decimal] = None
+    canonical_unit: Optional[str] = None
+    note: Optional[str] = None  # Display text for items without parsed quantities
+
+
 class SyncWithPantryResponse(BaseModel):
     """Response after syncing list with pantry"""
     items_removed: int
     items_updated: int
+    remaining_items: list[RemainingItem]
     message: str
 
 

@@ -17,7 +17,18 @@ Check if the sync pantry endpoint is working properly in the frontend. The endpo
   {
     items_removed: number,
     items_updated: number,
+    remaining_items: RemainingItem[],
     message: string
+  }
+  
+  interface RemainingItem {
+    ingredient_id: number;
+    ingredient_name: string;
+    quantity: number | null;      // May be null if only note is available
+    unit_code: string | null;     // May be null if only note is available
+    canonical_quantity: number | null;
+    canonical_unit: string | null;
+    note: string | null;          // Display text like "2 cups" for items without parsed quantities
   }
   ```
 
@@ -37,7 +48,10 @@ Check if the sync pantry endpoint is working properly in the frontend. The endpo
    - Verify error messages are being displayed to the user
 
 3. **Response Handling:**
-   - After successful sync, verify the response contains `items_removed`, `items_updated`, and `message`
+   - After successful sync, verify the response contains `items_removed`, `items_updated`, `remaining_items`, and `message`
+   - The `remaining_items` array contains all items still needed after pantry sync
+   - For items with parsed quantities: use `quantity` and `unit_code` fields
+   - For items without parsed quantities: use the `note` field (e.g., "2 cups")
    - Check if the frontend is refreshing/updating the grocery list after sync
    - Verify the UI reflects the changes (items removed or quantities updated)
 

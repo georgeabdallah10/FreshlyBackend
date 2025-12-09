@@ -329,53 +329,64 @@ class GroceryListService:
         self,
         db: Session,
         grocery_list: GroceryList,
-    ) -> tuple[int, int, GroceryList]:
+    ) -> tuple[int, int, list[dict], GroceryList]:
         """
-        ACID-safe pantry sync with updated_at tracking.
+        ACID-safe pantry sync using canonical units for proper comparison.
 
-        Compares grocery list items against pantry inventory and:
-        - Removes items fully covered by pantry
-        - Reduces quantities for partially covered items
+        Flow:
+        1. Get full grocery list with each item's quantity and unit
+        2. Normalize units for each grocery item to canonical units
+        3. Get pantry items (family pantry if user is in family, else personal)
+        4. Normalize pantry item units to canonical units
+        5. Calculate remaining to buy for each grocery list item
+        6. Remove fully covered items, reduce partially covered items
+        7. Return items_removed, items_updated, remaining_items, and updated list
 
         Args:
             db: Database session
             grocery_list: Pre-loaded GroceryList with items
 
         Returns:
-            (items_removed, items_updated, updated_grocery_list)
+            (items_removed, items_updated, remaining_items, updated_grocery_list)
         """
         from datetime import datetime, timezone
+        from services.grocery_calculator import get_pantry_totals, format_for_display
+        from services.unit_normalizer import try_normalize_quantity
+        from crud.ingredients import get_ingredient
 
-        logger.info(f"Syncing list {grocery_list.id} with pantry")
+        logger.info(f"Syncing list {grocery_list.id} with pantry using canonical units")
 
-        # Get pantry inventory
-        # For personal lists, sync against family pantry only (not personal)
+        # Determine pantry scope
+        # For personal lists with family membership, sync against family pantry
         # For family lists, sync against family pantry
+        family_id = None
+        owner_user_id = None
+
         if grocery_list.owner_user_id is not None:
-            # Personal list - sync against family pantry only
+            # Personal list - check if user has family
             membership = db.query(FamilyMembership).filter(
                 FamilyMembership.user_id == grocery_list.owner_user_id
             ).first()
             if membership:
-                pantry_inventory = get_pantry_inventory(
-                    db,
-                    family_id=membership.family_id,
-                )
+                family_id = membership.family_id
             else:
-                # User not in any family - fall back to personal pantry
-                pantry_inventory = get_pantry_inventory(
-                    db,
-                    owner_user_id=grocery_list.owner_user_id,
-                )
+                owner_user_id = grocery_list.owner_user_id
         else:
-            # Family list - sync against family pantry
-            pantry_inventory = get_pantry_inventory(
-                db,
-                family_id=grocery_list.family_id,
-            )
+            # Family list
+            family_id = grocery_list.family_id
+
+        # Step 3 & 4: Get pantry totals using canonical units
+        pantry_totals = get_pantry_totals(
+            db,
+            family_id=family_id,
+            owner_user_id=owner_user_id,
+        )
+
+        logger.info(f"Found pantry totals for {len(pantry_totals)} ingredients")
 
         items_removed = 0
         items_updated = 0
+        remaining_items = []
 
         # Process each unchecked item (copy list to allow deletion during iteration)
         for item in list(grocery_list.items):
@@ -383,20 +394,127 @@ class GroceryListService:
                 # Skip checked items - user already marked as purchased
                 continue
 
-            key = (item.ingredient_id, item.unit_id)
-            pantry_qty = pantry_inventory.get(key, Decimal(0))
-            required_qty = item.quantity or Decimal(0)
+            ingredient = item.ingredient
+            if not ingredient:
+                ingredient = get_ingredient(db, item.ingredient_id)
 
-            if pantry_qty >= required_qty:
+            ingredient_name = ingredient.name if ingredient else f"Ingredient {item.ingredient_id}"
+
+            # Step 2: Get canonical quantity for grocery item
+            # Use stored canonical values if available, otherwise try to normalize
+            grocery_canonical_qty = item.canonical_quantity_needed
+            grocery_canonical_unit = item.canonical_unit
+            has_valid_canonical = grocery_canonical_qty is not None and grocery_canonical_qty > 0
+
+            # Try to normalize if we don't have valid canonical values
+            if not has_valid_canonical and item.quantity is not None and item.quantity > 0:
+                unit_code = item.unit.code if item.unit else None
+                if unit_code and ingredient:
+                    normalized_qty, normalized_unit = try_normalize_quantity(
+                        ingredient, float(item.quantity), unit_code
+                    )
+                    if normalized_qty is not None and normalized_qty > 0:
+                        grocery_canonical_qty = Decimal(str(normalized_qty))
+                        grocery_canonical_unit = normalized_unit
+                        has_valid_canonical = True
+                        # Store the normalized values for future use
+                        item.canonical_quantity_needed = grocery_canonical_qty
+                        item.canonical_unit = grocery_canonical_unit
+                        db.add(item)
+
+            # If still no valid canonical (e.g., items with note-only quantity like "2 cups"),
+            # we can't compare with pantry - add to remaining as-is
+            if not has_valid_canonical:
+                logger.debug(
+                    f"Item {ingredient_name} has no canonical quantity - keeping as remaining "
+                    f"(quantity={item.quantity}, note={item.note})"
+                )
+                remaining_items.append({
+                    "ingredient_id": item.ingredient_id,
+                    "ingredient_name": ingredient_name,
+                    "quantity": item.quantity,
+                    "unit_code": item.unit.code if item.unit else None,
+                    "canonical_quantity": None,
+                    "canonical_unit": None,
+                    "note": item.note,
+                })
+                continue
+
+            # Step 4: Get pantry availability for this ingredient
+            pantry_qty = Decimal(0)
+            pantry_unit = None
+            if item.ingredient_id in pantry_totals:
+                pantry_qty, pantry_unit = pantry_totals[item.ingredient_id]
+
+            # Step 5: Calculate remaining
+            if pantry_unit and grocery_canonical_unit and pantry_unit != grocery_canonical_unit:
+                # Unit mismatch - log warning and keep item as-is
+                logger.warning(
+                    f"Canonical unit mismatch for {ingredient_name}: "
+                    f"pantry={pantry_unit}, grocery={grocery_canonical_unit}"
+                )
+                remaining_items.append({
+                    "ingredient_id": item.ingredient_id,
+                    "ingredient_name": ingredient_name,
+                    "quantity": item.quantity,
+                    "unit_code": item.unit.code if item.unit else None,
+                    "canonical_quantity": grocery_canonical_qty,
+                    "canonical_unit": grocery_canonical_unit,
+                    "note": item.note,
+                })
+                continue
+
+            remaining_qty = grocery_canonical_qty - pantry_qty
+
+            # Step 6: Update or remove items
+            if remaining_qty <= 0:
                 # Fully covered by pantry - remove from grocery list
                 db.delete(item)
                 items_removed += 1
-            elif pantry_qty > 0 and required_qty > 0:
-                # Partially covered - reduce grocery list quantity
-                item.quantity = required_qty - pantry_qty
+                logger.info(f"Removed {ingredient_name} - fully covered by pantry (had {grocery_canonical_qty}, pantry has {pantry_qty})")
+            elif remaining_qty < grocery_canonical_qty:
+                # Partially covered - reduce quantity
                 items_updated += 1
 
-        # Update timestamp explicitly (triggers onupdate behavior)
+                # Update canonical quantity
+                item.canonical_quantity_needed = remaining_qty
+                item.canonical_unit = grocery_canonical_unit
+
+                # Also update display quantity
+                display_qty, display_unit = format_for_display(remaining_qty, grocery_canonical_unit)
+                item.quantity = display_qty
+                db.add(item)
+
+                # Add to remaining items
+                remaining_items.append({
+                    "ingredient_id": item.ingredient_id,
+                    "ingredient_name": ingredient_name,
+                    "quantity": display_qty,
+                    "unit_code": display_unit,
+                    "canonical_quantity": remaining_qty,
+                    "canonical_unit": grocery_canonical_unit,
+                    "note": item.note,
+                })
+                logger.info(
+                    f"Updated {ingredient_name}: {grocery_canonical_qty} -> {remaining_qty} {grocery_canonical_unit}"
+                )
+            else:
+                # Not in pantry at all (remaining_qty == grocery_canonical_qty) - keep as-is, add to remaining
+                display_qty = item.quantity
+                display_unit = item.unit.code if item.unit else grocery_canonical_unit
+                
+                remaining_items.append({
+                    "ingredient_id": item.ingredient_id,
+                    "ingredient_name": ingredient_name,
+                    "quantity": display_qty,
+                    "unit_code": display_unit,
+                    "canonical_quantity": grocery_canonical_qty,
+                    "canonical_unit": grocery_canonical_unit,
+                    "note": item.note,
+                })
+                logger.debug(f"Keeping {ingredient_name} as-is - not in pantry")
+
+        # Update timestamp explicitly
         grocery_list.updated_at = datetime.now(timezone.utc)
 
         # Single commit - ACID transaction
@@ -405,10 +523,11 @@ class GroceryListService:
 
         logger.info(
             f"Sync complete for list {grocery_list.id}: "
-            f"{items_removed} removed, {items_updated} updated"
+            f"{items_removed} removed, {items_updated} updated, "
+            f"{len(remaining_items)} items remaining"
         )
 
-        return items_removed, items_updated, grocery_list
+        return items_removed, items_updated, remaining_items, grocery_list
 
     def validate_list_access(
         self,
