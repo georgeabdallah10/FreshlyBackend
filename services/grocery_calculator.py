@@ -368,6 +368,12 @@ def parse_amount_string(amount_str: str) -> tuple[float | None, str | None]:
     if fraction_match:
         numerator = int(fraction_match.group(1))
         denominator = int(fraction_match.group(2))
+        
+        # Validate denominator to prevent division by zero
+        if denominator == 0:
+            logger.warning(f"Invalid fraction with zero denominator: {amount_str}")
+            return None, None
+        
         qty = numerator / denominator
         unit = fraction_match.group(3).strip() or "count"
         return qty, unit
