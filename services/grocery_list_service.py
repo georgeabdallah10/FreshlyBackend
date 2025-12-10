@@ -139,6 +139,7 @@ class GroceryListService:
                 db,
                 family_id=family_id,
                 owner_user_id=owner_user_id,
+                created_by_user_id=owner_user_id,  # Track creator (for personal lists, owner is creator)
                 title=title,
                 status="draft",
             )
@@ -215,6 +216,7 @@ class GroceryListService:
                 db,
                 family_id=family_id,
                 owner_user_id=owner_user_id,
+                created_by_user_id=owner_user_id,  # Track creator (for personal lists, owner is creator)
                 title=title,
                 status="draft",
             )
