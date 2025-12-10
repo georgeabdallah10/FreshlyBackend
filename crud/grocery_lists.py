@@ -6,6 +6,8 @@ from models.recipe_ingredient import RecipeIngredient
 from models.pantry_item import PantryItem
 from models.ingredient import Ingredient
 from models.unit import Unit
+from models.family import Family
+from models.membership import FamilyMembership
 from decimal import Decimal
 from typing import Optional
 
@@ -24,7 +26,9 @@ def list_grocery_lists(
         joinedload(GroceryList.items)
             .joinedload(GroceryListItem.ingredient),
         joinedload(GroceryList.items)
-            .joinedload(GroceryListItem.unit)
+            .joinedload(GroceryListItem.unit),
+        joinedload(GroceryList.family)
+            .joinedload(Family.memberships)
     )
 
     if family_id is not None:
@@ -50,7 +54,15 @@ def get_grocery_list(
             joinedload(GroceryList.items)
                 .joinedload(GroceryListItem.ingredient),
             joinedload(GroceryList.items)
-                .joinedload(GroceryListItem.unit)
+                .joinedload(GroceryListItem.unit),
+            joinedload(GroceryList.family)
+                .joinedload(Family.memberships)
+        )
+    else:
+        # Even without items, load family for owner_user_id population
+        query = query.options(
+            joinedload(GroceryList.family)
+                .joinedload(Family.memberships)
         )
 
     return query.filter(GroceryList.id == list_id).first()

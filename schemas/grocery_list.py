@@ -84,10 +84,19 @@ class GroceryListOut(BaseModel):
     @classmethod
     def from_orm_with_scope(cls, obj):
         """Add scope field based on family_id/owner_user_id"""
+        # For family lists, populate owner_user_id with the family owner's user_id
+        owner_user_id = obj.owner_user_id
+        if obj.family_id and hasattr(obj, 'family') and obj.family:
+            # Find the family owner from memberships
+            for membership in obj.family.memberships:
+                if membership.role == 'owner':
+                    owner_user_id = membership.user_id
+                    break
+        
         data = {
             "id": obj.id,
             "family_id": obj.family_id,
-            "owner_user_id": obj.owner_user_id,
+            "owner_user_id": owner_user_id,  # Family owner for family lists, user for personal lists
             "created_by_user_id": obj.created_by_user_id,
             "scope": "family" if obj.family_id else "personal",
             "meal_plan_id": obj.meal_plan_id,
