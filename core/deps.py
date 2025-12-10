@@ -1,7 +1,7 @@
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from jwt import PyJWKError as JWTError
+from jwt import PyJWKError as JWTError, ExpiredSignatureError
 from core.db import get_db
 from core.security import decode_token, is_token_revoked
 from models.user import User
@@ -22,29 +22,50 @@ async def get_current_user(
         # Check if token is revoked
         if await is_token_revoked(token, request):
             logger.warning(f"AUTH_EVENT: TOKEN_VALIDATION_FAILED | reason=Token revoked | ip={request.client.host if request.client else 'N/A'}")
-            raise HTTPException(status_code=401, detail="Token has been revoked")
+            raise HTTPException(
+                status_code=401,
+                detail="Token has been revoked",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
 
         payload = decode_token(token)
         user_id = int(payload.get("sub"))
 
         user = db.get(User, user_id)
         if not user:
-            raise HTTPException(status_code=401, detail="User not found")
+            raise HTTPException(
+                status_code=401,
+                detail="User not found",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
 
         return user
 
+    except ExpiredSignatureError:
+        # Token expired - frontend should refresh
+        logger.warning(f"AUTH_EVENT: TOKEN_EXPIRED | ip={request.client.host if request.client else 'N/A'}")
+        raise HTTPException(
+            status_code=401,
+            detail="Token expired",
+            headers={"X-Token-Status": "expired", "WWW-Authenticate": "Bearer"}
+        )
     except JWTError as e:
+        # Token invalid - frontend should re-login
         logger.warning(f"AUTH_EVENT: TOKEN_VALIDATION_FAILED | reason={str(e)} | ip={request.client.host if request.client else 'N/A'}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
         )
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"AUTH_EVENT: TOKEN_VALIDATION_ERROR | reason={str(e)} | ip={request.client.host if request.client else 'N/A'}")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
 
 def require_family_role(min_role: str):
     rank = {"member": 1, "admin": 2, "owner": 3}

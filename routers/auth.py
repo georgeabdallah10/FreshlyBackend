@@ -10,6 +10,7 @@ from core.security import (
     create_refresh_token,
     decode_refresh_token,
     revoke_token,
+    is_token_revoked,
     hash_password,
     decode_token,
     log_auth_event
@@ -263,7 +264,7 @@ async def login_oauth(
     request: Request,
     authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
-    _rate_limit = Depends(rate_limiter("auth-login", require_auth=False))
+    _rate_limit = Depends(rate_limiter("auth-oauth", require_auth=False))
 ):
     """Authenticate an existing Supabase OAuth user."""
     if not authorization or not authorization.startswith("Bearer "):
@@ -272,7 +273,19 @@ async def login_oauth(
     if not supabase_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
 
-    user, provider, username = await OAuthSignupService.authenticate(db, supabase_token)
+    try:
+        user, provider, username = await OAuthSignupService.authenticate(db, supabase_token)
+    except HTTPException as e:
+        log_auth_event(
+            "OAUTH_LOGIN_FAILED",
+            user_id=None,
+            email=None,
+            success=False,
+            reason=e.detail,
+            ip=request.client.host if request.client else None
+        )
+        raise
+
     access_token = OAuthSignupService.issue_access_token(user)
     refresh_token = create_refresh_token(user_id=user.id)
 
@@ -317,7 +330,7 @@ async def signup_oauth(
     request: Request,
     authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
-    _rate_limit = Depends(rate_limiter("auth-register", require_auth=False))
+    _rate_limit = Depends(rate_limiter("auth-oauth", require_auth=False))
 ):
     """Register a new user using a Supabase-issued OAuth token."""
     if not authorization or not authorization.startswith("Bearer "):
@@ -326,7 +339,19 @@ async def signup_oauth(
     if not supabase_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
 
-    user, provider, username = await OAuthSignupService.register(db, supabase_token)
+    try:
+        user, provider, username = await OAuthSignupService.register(db, supabase_token)
+    except HTTPException as e:
+        log_auth_event(
+            "OAUTH_SIGNUP_FAILED",
+            user_id=None,
+            email=None,
+            success=False,
+            reason=e.detail,
+            ip=request.client.host if request.client else None
+        )
+        raise
+
     access_token = OAuthSignupService.issue_access_token(user)
     refresh_token = create_refresh_token(user_id=user.id)
 

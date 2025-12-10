@@ -9,7 +9,7 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from core.security import create_access_token, hash_password
+from core.security import create_access_token, hash_password, log_auth_event
 from core.settings import settings
 from crud.auth import get_user_by_email
 from crud.user_preferences import create_user_preference
@@ -60,12 +60,51 @@ class OAuthSignupService:
         if not supabase_user_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Supabase response")
 
-        if get_user_by_email(db, email):
-            logger.info("[AuthService] OAuth signup blocked - email already exists: %s", email)
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User already exists")
+        # Check if email already exists and handle account linking protection
+        existing_user = get_user_by_email(db, email)
+        if existing_user:
+            # Check if they have an OAuth account with a different provider
+            existing_oauth = db.query(OAuthAccount).filter(
+                OAuthAccount.user_id == existing_user.id
+            ).first()
+
+            if existing_oauth and existing_oauth.provider != provider:
+                # Different provider - suggest using existing provider
+                log_auth_event(
+                    "OAUTH_SIGNUP_BLOCKED_PROVIDER_MISMATCH",
+                    user_id=existing_user.id,
+                    email=email,
+                    success=False,
+                    reason=f"Email registered with {existing_oauth.provider}",
+                    metadata={"attempted_provider": provider, "existing_provider": existing_oauth.provider}
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Email already registered with {existing_oauth.provider}. Please login with {existing_oauth.provider} instead."
+                )
+            else:
+                # Same provider or email/password user
+                log_auth_event(
+                    "OAUTH_SIGNUP_BLOCKED_EMAIL_EXISTS",
+                    user_id=existing_user.id,
+                    email=email,
+                    success=False,
+                    reason="Email already registered"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Email already registered. Please login instead."
+                )
 
         if db.query(OAuthAccount).filter(OAuthAccount.supabase_user_id == supabase_user_id).first():
             logger.info("[AuthService] OAuth signup blocked - Supabase user already linked: %s", supabase_user_id)
+            log_auth_event(
+                "OAUTH_SIGNUP_BLOCKED_SUPABASE_ID_EXISTS",
+                user_id=None,
+                email=email,
+                success=False,
+                reason="Supabase user ID already linked"
+            )
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User already exists")
 
         password_placeholder = hash_password(secrets.token_urlsafe(32))
@@ -177,9 +216,52 @@ class OAuthSignupService:
 
     @classmethod
     async def _fetch_supabase_identity(cls, supabase_jwt: str) -> dict:
+        """
+        Validate Supabase token and extract identity.
+        Uses JWKS (RS256) validation with HS256/HTTP fallback.
+        """
         if not supabase_jwt:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
 
+        # Primary: JWKS validation (local, no network call to Supabase user endpoint)
+        try:
+            from core.supabase_jwt import SupabaseJWTValidator
+
+            claims = await SupabaseJWTValidator.validate_token(supabase_jwt)
+
+            # Transform claims to expected format
+            identity = {
+                "id": claims.get("sub"),
+                "email": claims.get("email"),
+                "user_metadata": claims.get("user_metadata", {}),
+                "app_metadata": claims.get("app_metadata", {}),
+            }
+
+            log_auth_event(
+                "OAUTH_TOKEN_VALIDATION_SUCCESS",
+                user_id=None,
+                email=claims.get("email"),
+                success=True,
+                metadata={"method": "jwks"}
+            )
+
+            return identity
+
+        except HTTPException:
+            # Re-raise 401 errors (expired/invalid token)
+            raise
+
+        except Exception as exc:
+            logger.warning(f"[AuthService] JWKS validation failed, falling back to HTTP: {exc}")
+            # Fall back to HTTP validation if JWKS fails
+            return await cls._fetch_supabase_identity_http(supabase_jwt)
+
+    @classmethod
+    async def _fetch_supabase_identity_http(cls, supabase_jwt: str) -> dict:
+        """
+        Fallback: HTTP call to Supabase /auth/v1/user endpoint.
+        Used when JWKS validation fails (e.g., SUPABASE_URL misconfigured).
+        """
         base_url = (settings.SUPABASE_URL or "").rstrip("/")
         if not base_url:
             logger.error("[AuthService] SUPABASE_URL not configured")
@@ -198,9 +280,24 @@ class OAuthSignupService:
                 resp = await client.get(url, headers=headers)
         except httpx.RequestError as exc:
             logger.error("[AuthService] Supabase request error: %s", exc)
+            log_auth_event(
+                "OAUTH_TOKEN_VALIDATION_FAILED",
+                user_id=None,
+                email=None,
+                success=False,
+                reason="network_error",
+                metadata={"error": str(exc)}
+            )
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Supabase unavailable")
 
         if resp.status_code == status.HTTP_401_UNAUTHORIZED:
+            log_auth_event(
+                "OAUTH_TOKEN_VALIDATION_FAILED",
+                user_id=None,
+                email=None,
+                success=False,
+                reason="invalid_token"
+            )
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
 
         if resp.status_code >= 400:
@@ -209,6 +306,23 @@ class OAuthSignupService:
                 resp.status_code,
                 resp.text,
             )
+            log_auth_event(
+                "OAUTH_TOKEN_VALIDATION_FAILED",
+                user_id=None,
+                email=None,
+                success=False,
+                reason="supabase_error",
+                metadata={"status_code": resp.status_code}
+            )
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Unable to verify token")
 
-        return resp.json()
+        identity = resp.json()
+        log_auth_event(
+            "OAUTH_TOKEN_VALIDATION_SUCCESS",
+            user_id=None,
+            email=identity.get("email"),
+            success=True,
+            metadata={"method": "http"}
+        )
+
+        return identity

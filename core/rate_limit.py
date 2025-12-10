@@ -83,6 +83,13 @@ RATE_LIMIT_POLICIES = {
             {"limit": 10, "window": 86400, "type": "daily"}   # 10/day
         ]
     },
+    # OAuth endpoints (stricter - involves external JWKS/Supabase calls)
+    "auth-oauth": {
+        "default": [
+            {"limit": 5, "window": 60, "type": "burst"},      # 5/min
+            {"limit": 20, "window": 3600, "type": "hourly"}   # 20/hour
+        ]
+    },
     # Global IP fallback (for unauthenticated requests)
     "global-ip": {
         "default": [
