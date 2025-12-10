@@ -490,11 +490,14 @@ class GroceryListService:
             (items_removed, items_updated, remaining_items, updated_grocery_list)
         """
         from datetime import datetime, timezone
-        from services.grocery_calculator import get_pantry_totals_flexible, format_for_display, parse_amount_string
+        from services.grocery_calculator import get_pantry_totals_flexible, format_for_display, parse_amount_string, normalize_unit_string
         from services.unit_normalizer import try_normalize_quantity
         from crud.ingredients import get_ingredient
 
-        logger.info(f"Syncing list {grocery_list.id} with pantry using flexible unit comparison")
+        logger.info(
+            f"Syncing list {grocery_list.id} with pantry "
+            f"(list.owner_user_id={grocery_list.owner_user_id}, list.family_id={grocery_list.family_id})"
+        )
 
         # Determine pantry scope
         # For personal lists with family membership, sync against family pantry
@@ -509,11 +512,14 @@ class GroceryListService:
             ).first()
             if membership:
                 family_id = membership.family_id
+                logger.info(f"Personal list -> Using family pantry (family_id={family_id})")
             else:
                 owner_user_id = grocery_list.owner_user_id
+                logger.info(f"Personal list -> Using personal pantry (owner_user_id={owner_user_id})")
         else:
             # Family list
             family_id = grocery_list.family_id
+            logger.info(f"Family list -> Using family pantry (family_id={family_id})")
 
         # Get flexible pantry totals (includes both canonical and display quantities)
         pantry_totals = get_pantry_totals_flexible(
@@ -524,9 +530,27 @@ class GroceryListService:
 
         logger.info(f"Found pantry totals for {len(pantry_totals)} ingredients")
 
+        # Debug: Log pantry contents
+        for ing_id, data in pantry_totals.items():
+            logger.debug(
+                f"Pantry has ingredient_id={ing_id}: "
+                f"canonical={data.get('canonical_quantity')}/{data.get('canonical_unit')}, "
+                f"display={data.get('display_quantity')}/{data.get('display_unit')}"
+            )
+
         items_removed = 0
         items_updated = 0
         remaining_items = []
+
+        # Debug: Log grocery list items
+        logger.info(f"Grocery list {grocery_list.id} has {len(grocery_list.items)} items")
+        for item in grocery_list.items:
+            logger.debug(
+                f"Grocery item: ingredient_id={item.ingredient_id}, "
+                f"qty={item.quantity}, unit={item.unit.code if item.unit else None}, "
+                f"canonical={item.canonical_quantity_needed}/{item.canonical_unit}, "
+                f"checked={item.checked}"
+            )
 
         # Process each unchecked item (copy list to allow deletion during iteration)
         for item in list(grocery_list.items):
@@ -608,46 +632,66 @@ class GroceryListService:
                                 f"{parsed_qty} {parsed_unit}"
                             )
 
-            # If still no valid values, add to remaining as-is (can't compare)
+            # If still no valid canonical values, try display unit comparison as fallback
             if not has_valid_canonical:
-                logger.debug(
-                    f"Item {ingredient_name} has no canonical quantity - keeping as remaining "
-                    f"(quantity={item.quantity}, note={item.note})"
-                )
-                remaining_items.append({
-                    "ingredient_id": item.ingredient_id,
-                    "ingredient_name": ingredient_name,
-                    "quantity": item.quantity,
-                    "unit_code": item.unit.code if item.unit else None,
-                    "canonical_quantity": None,
-                    "canonical_unit": None,
-                    "note": item.note,
-                })
-                continue
+                # Use display values for comparison if available
+                if original_display_qty is not None and original_display_qty > 0:
+                    grocery_canonical_qty = original_display_qty
+                    grocery_canonical_unit = original_display_unit
+                    has_valid_canonical = True
+                    logger.info(
+                        f"Using display units for {ingredient_name}: "
+                        f"{original_display_qty} {original_display_unit}"
+                    )
+                else:
+                    logger.debug(
+                        f"Item {ingredient_name} has no quantity - keeping as remaining "
+                        f"(quantity={item.quantity}, note={item.note})"
+                    )
+                    remaining_items.append({
+                        "ingredient_id": item.ingredient_id,
+                        "ingredient_name": ingredient_name,
+                        "quantity": item.quantity,
+                        "unit_code": item.unit.code if item.unit else None,
+                        "canonical_quantity": None,
+                        "canonical_unit": None,
+                        "note": item.note,
+                    })
+                    continue
 
             # Step 4: Get pantry availability for this ingredient
             pantry_qty = Decimal(0)
             pantry_unit = None
-            
+
             if item.ingredient_id in pantry_totals:
                 pantry_data = pantry_totals[item.ingredient_id]
-                
+
                 # Try canonical first, then fall back to display
                 if pantry_data['canonical_quantity'] and pantry_data['canonical_unit']:
                     pantry_qty = pantry_data['canonical_quantity']
                     pantry_unit = pantry_data['canonical_unit']
+                    logger.debug(f"Found {ingredient_name} in pantry (canonical): {pantry_qty} {pantry_unit}")
                 elif pantry_data['display_quantity'] and pantry_data['display_unit']:
                     # Use display quantities for comparison
                     pantry_qty = pantry_data['display_quantity']
                     pantry_unit = pantry_data['display_unit']
+                    logger.debug(f"Found {ingredient_name} in pantry (display): {pantry_qty} {pantry_unit}")
+                else:
+                    logger.debug(f"Found {ingredient_name} in pantry but no quantities")
+            else:
+                logger.debug(f"{ingredient_name} (id={item.ingredient_id}) NOT in pantry totals")
 
             # Step 5: Calculate remaining
             # Compare using matching units (canonical or display)
-            if pantry_unit and grocery_canonical_unit and pantry_unit != grocery_canonical_unit:
+            # Normalize both units for comparison
+            normalized_pantry_unit = normalize_unit_string(pantry_unit) if pantry_unit else None
+            normalized_grocery_unit = normalize_unit_string(grocery_canonical_unit) if grocery_canonical_unit else None
+
+            if normalized_pantry_unit and normalized_grocery_unit and normalized_pantry_unit != normalized_grocery_unit:
                 # Unit mismatch - log warning and keep item as-is
                 logger.warning(
-                    f"Canonical unit mismatch for {ingredient_name}: "
-                    f"pantry={pantry_unit}, grocery={grocery_canonical_unit}"
+                    f"Unit mismatch for {ingredient_name}: "
+                    f"pantry={pantry_unit}({normalized_pantry_unit}), grocery={grocery_canonical_unit}({normalized_grocery_unit})"
                 )
                 remaining_items.append({
                     "ingredient_id": item.ingredient_id,

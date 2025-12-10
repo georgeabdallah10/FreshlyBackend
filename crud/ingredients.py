@@ -1,6 +1,6 @@
 # crud/ingredients.py
 from sqlalchemy.orm import Session
-from sqlalchemy import asc
+from sqlalchemy import asc, func
 from sqlalchemy.exc import IntegrityError
 from models.ingredient import Ingredient
 
@@ -16,8 +16,13 @@ def get_ingredient(db: Session, ingredient_id: int) -> Ingredient | None:
 
 
 def get_ingredient_by_name(db: Session, name: str) -> Ingredient | None:
-    """Return an ingredient by exact name (used for uniqueness checks)."""
-    return db.query(Ingredient).filter(Ingredient.name == name).first()
+    """Return an ingredient by case-insensitive name match."""
+    normalized = (name or "").strip()
+    if not normalized:
+        return None
+    return db.query(Ingredient).filter(
+        func.lower(Ingredient.name) == normalized.lower()
+    ).first()
 
 
 def create_ingredient(db: Session, *, name: str, category: str | None) -> Ingredient:

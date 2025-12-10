@@ -52,6 +52,8 @@ alembic history
 python3 test_meal_sharing.py
 python3 test_share_request_fix.py
 python3 test_members_direct.py
+python3 test_grocery_sync.py
+python3 test_pantry_subtraction.py
 ```
 
 Note: This project currently uses manual test scripts rather than pytest. Tests are standalone Python scripts that import from the application.
@@ -96,9 +98,13 @@ routers/           # API route handlers (FastAPI routers)
 ├── auth.py        # Registration, login, refresh token, logout
 ├── families.py    # Family CRUD, member management
 ├── meals.py       # Meal CRUD, family attachment
+├── meal_plans.py  # Meal planning with slots
 ├── meal_share_requests.py  # Meal sharing between users
 ├── chat.py        # AI chat, receipt scanning, pantry image analysis
-├── pantry_items.py
+├── pantry_items.py  # Pantry CRUD with canonical unit support
+├── grocery_lists.py  # Grocery lists with pantry sync
+├── recipes.py     # Recipe management
+├── ingredients.py  # Ingredient lookup/creation
 ├── notifications.py
 └── ...
 
@@ -106,8 +112,12 @@ models/            # SQLAlchemy ORM models (database tables)
 ├── user.py
 ├── family.py
 ├── membership.py  # FamilyMembership (user-family relationship)
-├── meal.py
+├── meal.py        # Meal with JSONB ingredients field
+├── meal_plan.py   # MealPlan → MealSlot → MealSlotMeal → Meal
 ├── meal_share_request.py
+├── ingredient.py  # Ingredient with canonical unit metadata
+├── pantry_item.py  # PantryItem with canonical quantities
+├── grocery_list.py  # GroceryList → GroceryListItem
 └── ...
 
 schemas/           # Pydantic models for request/response validation
@@ -123,18 +133,23 @@ crud/              # Database operations (repository pattern)
 └── ...
 
 services/          # Business logic and external service integration
-├── chat_service.py           # OpenAI chat integration
-├── receipt_scanner.py        # Receipt OCR/parsing
-├── pantry_image_service.py   # Image analysis for pantry items
-├── oauth_signup.py           # OAuth flow handling
-└── user_service.py
+├── chat_service.py                   # OpenAI chat integration
+├── receipt_scanner.py                # Receipt OCR/parsing
+├── pantry_image_service.py           # Image analysis for pantry items
+├── oauth_signup.py                   # OAuth flow handling
+├── user_service.py
+├── grocery_list_service.py           # Grocery list business logic (sync, rebuild)
+├── grocery_calculator.py             # Canonical unit calculations for grocery needs
+├── unit_normalizer.py                # Quantity normalization to canonical units
+└── ingredient_normalization_service.py  # AI ingredient parsing (optional)
 
 core/              # Application core (config, database, auth)
-├── settings.py    # Pydantic Settings (env vars)
-├── db.py          # Database engine, session management
-├── deps.py        # FastAPI dependencies (get_current_user, require_family_role)
-├── security.py    # JWT encoding/decoding, password hashing, token revocation
-├── rate_limit.py  # Rate limiting logic
+├── settings.py        # Pydantic Settings (env vars)
+├── db.py              # Database engine, session management
+├── deps.py            # FastAPI dependencies (get_current_user, require_family_role)
+├── security.py        # JWT encoding/decoding, password hashing, token revocation
+├── rate_limit.py      # Rate limiting logic
+├── unit_conversions.py  # Weight/volume/count unit conversion constants
 └── ...
 
 migrations/        # Alembic database migrations
@@ -149,6 +164,12 @@ utils/             # Shared utilities
 
 **Family-Based Multi-Tenancy**: Users can belong to multiple families via `FamilyMembership`. The `require_family_role()` dependency enforces role-based access (member < admin < owner).
 
+**Meal Plan Hierarchy**:
+- `MealPlan` → `MealSlot[]` (time slots like breakfast/lunch/dinner) → `MealSlotMeal[]` → `Meal`
+- `MealSlot.servings`: Default servings for the slot
+- `MealSlotMeal.portions`: Override portions for specific meal
+- `Meal.ingredients`: JSONB array of `{"name": "flour", "amount": "2 cups", "inPantry": false}`
+
 **Meal Sharing Flow**:
 1. User creates a meal (can optionally set `family_id`)
 2. OR user can attach existing meal to family via `attach_meal_to_family()`
@@ -159,6 +180,20 @@ utils/             # Shared utilities
 **CRUD Pattern**: Database operations separated into `crud/` modules. Routers call CRUD functions rather than directly querying the database.
 
 **Service Layer**: Complex business logic (AI features, external APIs) in `services/`. Simple CRUD stays in `crud/`.
+
+**Unit Normalization System**: Ingredients have canonical units (g, ml, or count) with conversion metadata. The system enables comparing quantities across different units:
+- `Ingredient.canonical_unit`: Base unit for the ingredient (g, ml, or count)
+- `Ingredient.canonical_unit_type`: Type enum (weight, volume, count)
+- `Ingredient.density_g_per_ml`: For volume↔weight conversions
+- `Ingredient.avg_weight_per_unit_g`: For weight↔count conversions
+- Flow: `unit_normalizer.py` converts to canonical → `grocery_calculator.py` computes needs → `grocery_list_service.py` syncs with pantry
+
+**Grocery List Sync Flow**:
+1. `rebuild_grocery_list_from_meal_plan()`: Calculates ingredient needs from meal plan meals
+2. `calculate_total_needed()`: Sums canonical quantities per ingredient across all meals
+3. `get_pantry_totals()`: Gets pantry availability in canonical units
+4. `compute_remaining_to_buy()`: Subtracts pantry from needed
+5. `sync_list_with_pantry()`: Updates existing grocery list based on current pantry
 
 ## Environment Configuration
 
@@ -248,6 +283,11 @@ def public_op(
 **Settings Access**: Use `from core.settings import settings` to access environment variables. Don't use `os.getenv()` directly.
 
 **OpenAI Integration**: Check `settings.openai_enabled` property before calling OpenAI APIs. Features gracefully degrade if API key is not configured.
+
+**Canonical Unit System**: Ingredients in the database should have `canonical_unit` set (g, ml, or count). Conversion requires:
+- For weight↔volume: Set `density_g_per_ml` on the ingredient
+- For weight↔count: Set `avg_weight_per_unit_g` on the ingredient
+- Use `try_normalize_quantity()` from `services/unit_normalizer.py` for safe conversions that return `(None, None)` on failure
 
 ## Production Deployment Notes
 
