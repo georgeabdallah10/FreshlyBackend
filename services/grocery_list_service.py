@@ -133,7 +133,7 @@ class GroceryListService:
         else:
             # Create new list
             if title is None:
-                title = f"Shopping list for {recipe.title}"
+                title = recipe.title
 
             grocery_list = create_grocery_list(
                 db,
@@ -209,7 +209,7 @@ class GroceryListService:
         else:
             # Create new list
             if title is None:
-                title = f"Shopping list for {meal.name}"
+                title = meal.name
 
             grocery_list = create_grocery_list(
                 db,
@@ -907,7 +907,7 @@ class GroceryListService:
                 db,
                 family_id=family_id,
                 owner_user_id=owner_user_id,
-                title=f"Shopping list for {meal_plan.title or 'Meal Plan'}",
+                title=meal_plan.title or "Meal Plan",
                 status="draft",
                 meal_plan_id=meal_plan_id,
                 created_by_user_id=user_id,
