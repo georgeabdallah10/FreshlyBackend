@@ -1,5 +1,5 @@
  # models/user_preference.py
-from sqlalchemy import Integer, Text, ForeignKey, DateTime, func, text
+from sqlalchemy import Boolean, Integer, Text, ForeignKey, DateTime, func, text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from core.db import Base
@@ -45,6 +45,15 @@ class UserPreference(Base):
         Integer,
         nullable=False,
         server_default=text("2000"),
+    )
+    is_athlete: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+    )
+    training_level: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )
 
     created_at: Mapped["DateTime"] = mapped_column(

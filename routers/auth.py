@@ -73,11 +73,14 @@ def register(
         create_user_preference(
             db,
             user_id=user.id,
-    diet_codes=data.preference.diet_codes if data.preference else None,
-    allergen_ingredient_ids=data.preference.allergen_ingredient_ids if data.preference else None,
-    disliked_ingredient_ids=data.preference.disliked_ingredient_ids if data.preference else None,
-    goal=(data.preference.goal if data.preference else None),
-    calorie_target=(data.preference.calorie_target if data.preference else None),        )
+            diet_codes=data.preference.diet_codes if data.preference else None,
+            allergen_ingredient_ids=data.preference.allergen_ingredient_ids if data.preference else None,
+            disliked_ingredient_ids=data.preference.disliked_ingredient_ids if data.preference else None,
+            goal=(data.preference.goal if data.preference else None),
+            calorie_target=(data.preference.calorie_target if data.preference else None),
+            is_athlete=data.preference.is_athlete if data.preference else False,
+            training_level=data.preference.training_level if data.preference else None,
+        )
     else:
         create_user_preference(
             db,
@@ -86,7 +89,9 @@ def register(
             diet_codes=[],
             disliked_ingredient_ids=[],
             goal="balanced",
-            calorie_target=2000
+            calorie_target=2000,
+            is_athlete=False,
+            training_level=None,
         )
     # reload with relationships eagerly loaded for response
     user = (

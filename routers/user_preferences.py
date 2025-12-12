@@ -45,15 +45,20 @@ def set_my_preferences(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    pref = create_or_update_user_preference(
-        db,
-        current_user.id,
-        diet_codes=data.diet_codes,
-        allergen_ingredient_ids=data.allergen_ingredient_ids,
-        disliked_ingredient_ids=data.disliked_ingredient_ids,
-        goal=data.goal,
-        calorie_target=data.calorie_target,
-    )
+    try:
+        pref = create_or_update_user_preference(
+            db,
+            current_user.id,
+            diet_codes=data.diet_codes,
+            allergen_ingredient_ids=data.allergen_ingredient_ids,
+            disliked_ingredient_ids=data.disliked_ingredient_ids,
+            goal=data.goal,
+            calorie_target=data.calorie_target,
+            is_athlete=data.is_athlete,
+            training_level=data.training_level,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return pref
 
 
