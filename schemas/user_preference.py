@@ -1,6 +1,6 @@
 # schemas/user_preference.py
-from pydantic import BaseModel, Field, ConfigDict, model_validator, field_validator
-from typing import Optional, List, Literal
+from pydantic import BaseModel, Field, ConfigDict, model_validator, field_validator, AliasChoices
+from typing import Optional, List, Literal, Any
 from datetime import datetime
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8,8 +8,20 @@ from datetime import datetime
 # ──────────────────────────────────────────────────────────────────────────────
 GenderType = Literal["male", "female"]
 TrainingLevelType = Literal["light", "casual", "intense"]
-GoalType = Literal["lose_weight", "get_leaner", "balanced", "muscle_gain", "gain_weight"]
+# Accept both hyphenated (frontend) and underscored (canonical) goal values
+GoalType = Literal[
+    "lose_weight", "get_leaner", "balanced", "muscle_gain", "gain_weight",
+    "lose-weight", "leaner", "muscle-gain", "weight-gain"
+]
 DietTypeType = Literal["halal", "kosher", "vegetarian", "vegan", "pescatarian"]
+
+# Mapping from frontend goal values to canonical backend values
+GOAL_NORMALIZATION_MAP = {
+    "lose-weight": "lose_weight",
+    "leaner": "get_leaner",
+    "muscle-gain": "muscle_gain",
+    "weight-gain": "gain_weight",
+}
 
 
 class UserPreferenceCreate(BaseModel):
@@ -56,7 +68,12 @@ class UserPreferenceCreate(BaseModel):
         "balanced",
         description="Goal: lose_weight, get_leaner, balanced, muscle_gain, gain_weight",
     )
-    is_athlete: bool = Field(False, description="Whether the user is an athlete")
+    # Accept both 'is_athlete' and 'athlete_mode' from frontend
+    is_athlete: bool = Field(
+        False,
+        description="Whether the user is an athlete",
+        validation_alias=AliasChoices("is_athlete", "athlete_mode"),
+    )
     training_level: Optional[TrainingLevelType] = Field(
         None, description="Training intensity level for athletes: light, casual, intense"
     )
@@ -64,7 +81,13 @@ class UserPreferenceCreate(BaseModel):
     # ──────────────────────────────────────────────────────────────────────────
     # Computed Nutrition Targets
     # ──────────────────────────────────────────────────────────────────────────
-    calorie_target: int = Field(2000, ge=0, description="Daily calorie target")
+    # Accept both 'calorie_target' and 'target_calories' from frontend
+    calorie_target: int = Field(
+        2000,
+        ge=0,
+        description="Daily calorie target",
+        validation_alias=AliasChoices("calorie_target", "target_calories"),
+    )
     protein_grams: Optional[float] = Field(None, ge=0, description="Protein target in grams")
     carb_grams: Optional[float] = Field(None, ge=0, description="Carbohydrate target in grams")
     fat_grams: Optional[float] = Field(None, ge=0, description="Fat target in grams")
@@ -78,7 +101,15 @@ class UserPreferenceCreate(BaseModel):
     calorie_min: Optional[int] = Field(None, ge=0, description="Minimum safe calorie target")
     calorie_max: Optional[int] = Field(None, ge=0, description="Maximum safe calorie target")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @field_validator("goal", mode="before")
+    @classmethod
+    def normalize_goal(cls, v: Any) -> str:
+        """Normalize frontend goal values to canonical backend values."""
+        if isinstance(v, str):
+            return GOAL_NORMALIZATION_MAP.get(v, v)
+        return v
 
     @model_validator(mode="after")
     def validate_athlete_and_calorie_range(self):
@@ -138,7 +169,12 @@ class UserPreferenceUpdate(BaseModel):
     goal: Optional[GoalType] = Field(
         None, description="Goal: lose_weight, get_leaner, balanced, muscle_gain, gain_weight"
     )
-    is_athlete: Optional[bool] = Field(None, description="Whether the user is an athlete")
+    # Accept both 'is_athlete' and 'athlete_mode' from frontend
+    is_athlete: Optional[bool] = Field(
+        None,
+        description="Whether the user is an athlete",
+        validation_alias=AliasChoices("is_athlete", "athlete_mode"),
+    )
     training_level: Optional[TrainingLevelType] = Field(
         None, description="Training intensity level for athletes: light, casual, intense"
     )
@@ -146,7 +182,13 @@ class UserPreferenceUpdate(BaseModel):
     # ──────────────────────────────────────────────────────────────────────────
     # Computed Nutrition Targets
     # ──────────────────────────────────────────────────────────────────────────
-    calorie_target: Optional[int] = Field(None, ge=0, description="Daily calorie target")
+    # Accept both 'calorie_target' and 'target_calories' from frontend
+    calorie_target: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Daily calorie target",
+        validation_alias=AliasChoices("calorie_target", "target_calories"),
+    )
     protein_grams: Optional[float] = Field(None, ge=0, description="Protein target in grams")
     carb_grams: Optional[float] = Field(None, ge=0, description="Carbohydrate target in grams")
     fat_grams: Optional[float] = Field(None, ge=0, description="Fat target in grams")
@@ -160,7 +202,15 @@ class UserPreferenceUpdate(BaseModel):
     calorie_min: Optional[int] = Field(None, ge=0, description="Minimum safe calorie target")
     calorie_max: Optional[int] = Field(None, ge=0, description="Maximum safe calorie target")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @field_validator("goal", mode="before")
+    @classmethod
+    def normalize_goal(cls, v: Any) -> Optional[str]:
+        """Normalize frontend goal values to canonical backend values."""
+        if isinstance(v, str):
+            return GOAL_NORMALIZATION_MAP.get(v, v)
+        return v
 
     @model_validator(mode="after")
     def validate_athlete_training_level(self):
