@@ -17,6 +17,7 @@ class ChatMessage(ChatMessageBase):
     id: int
     conversation_id: int
     created_at: datetime
+    is_internal: int = 0  # 0 = visible, 1 = internal/hidden from frontend
 
     class Config:
         from_attributes = True

@@ -1,0 +1,24 @@
+Chat service (text chat only, no image or meal-generation flows)
+
+- Purpose: Provide an AI assistant that behaves like a chat bot with saved threads. Conversations and messages are persisted so a user can carry on an ongoing dialogue.
+
+- Data model: `chat_conversations` (id, user_id, optional title, created_at/updated_at) with `chat_messages` (id, conversation_id, role=user/assistant/system, content, created_at). ORM in `models/chat.py`; CRUD helpers in `crud/chat.py` handle creation, message inserts (also bump `updated_at`), title updates, and delete with cascade via relationship.
+
+- Primary endpoint: `POST /chat` (`routers/chat.py`) accepts `ChatRequest {prompt, system?, conversation_id?}`. It requires auth and uses the `chat` rate-limit bucket (free: 10/min + 50/day; pro: 30/min + 200/day via `core/rate_limit.py`).
+
+- Request flow (`services/chat_service.py::send_message_with_history`):
+  1) Ensure OpenAI is configured; default model `gpt-4o-mini`, temperature/max_tokens from settings.
+  2) Get or create conversation (`conversation_id` required to continue a thread; if omitted, a new conversation is created and returned).
+  3) Build context: system prompt (user-provided or default “You are a helpful AI assistant.”) + last 10 stored messages from that conversation + current user prompt.
+  4) Persist the user message, call OpenAI chat completions (non-streaming), cache-aware for identical inputs (`@cached` 1h), then persist the assistant reply.
+  5) Return `ChatResponse {reply, conversation_id, message_id}`. Conversation-list cache is invalidated so listing shows fresh timestamps.
+
+- Conversation management endpoints (all auth-protected):
+  - `GET /chat/conversations`: paginated list with message counts (cached 60s).
+  - `GET /chat/conversations/{id}` and `/messages`: fetch a thread or its messages (ordered by created_at).
+  - `POST /chat/conversations`: create a titled conversation explicitly.
+  - `PUT /chat/conversations/{id}/title`, `DELETE /chat/conversations/{id}`: rename or remove threads (invalidates caches).
+
+- Legacy stateless endpoint: `POST /chat/legacy` sends a one-off prompt (optional system prompt) with no stored history; returns raw reply JSON (`{"reply": ...}`).
+
+- User experience: By reusing the returned `conversation_id` on subsequent `POST /chat` calls, the service keeps context (last 10 turns) so users can have a continuous, chat-bot-style conversation. Titles can be set/updated for organization; deleting a conversation removes its messages.

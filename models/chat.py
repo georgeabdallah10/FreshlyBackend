@@ -26,6 +26,8 @@ class ChatMessage(Base):
     role = Column(String(20), nullable=False)  # 'user', 'assistant', 'system'
     content = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    
+    # Internal messages are sent to OpenAI but NOT returned to frontend (e.g., assistant intent state)
+    is_internal = Column(Integer, default=0, nullable=False)  # 0 = visible, 1 = internal/hidden
+
     # Relationships
     conversation = relationship("ChatConversation", back_populates="messages")
