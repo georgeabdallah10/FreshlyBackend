@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # Supabase has a connection limit in session mode, so we use conservative pooling
 # NullPool is recommended for serverless/Supabase to avoid "MaxClientsInSessionMode" errors
 engine = create_engine(
-    settings.DATABASE_URL_POOLER,
+    settings.DATABASE_URL,
     # Use NullPool for Supabase to avoid connection limit issues
     # Each request gets a fresh connection and closes it immediately
     poolclass=NullPool,
