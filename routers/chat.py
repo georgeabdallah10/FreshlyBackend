@@ -183,25 +183,23 @@ async def scan_grocery_proxy(
     req: Request,
     file: UploadFile = File(..., description="Image file (JPEG/PNG, max 2MB)"),
     scan_type: str = Form(..., description="Type of scan: 'groceries' or 'receipt'"),
-    conversation_id: int | None = Form(None, description="Optional conversation ID"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     _rate_limit = Depends(rate_limiter_with_user("chat"))
 ):
     """
     iOS Safari-compatible endpoint for scanning grocery/receipt images.
-    
+
     Accepts multipart/form-data instead of JSON with base64. This endpoint:
     - Accepts image file uploads (JPEG/PNG, max 2MB)
     - Validates scan type (groceries or receipt)
     - Converts to base64 and uses existing AI processing
     - Returns same response format as /scan-grocery
-    
+
     Args:
         file: Image file (JPEG or PNG, max 2MB)
         scan_type: Either "groceries" or "receipt"
-        conversation_id: Optional conversation ID to continue existing conversation
-        
+
     Returns:
         ImageScanResponse with items array and total_items count
     """
@@ -242,8 +240,7 @@ async def scan_grocery_proxy(
         
         # Create ImageScanRequest to reuse existing service
         scan_request = ImageScanRequest(
-            image_data=base64_image,
-            conversation_id=conversation_id
+            image_data=base64_image
         )
         
         # Call existing AI processing service - same as /scan-grocery endpoint

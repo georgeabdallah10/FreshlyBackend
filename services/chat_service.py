@@ -428,19 +428,6 @@ class ChatService:
         """Analyze grocery image using OpenAI's Vision API"""
         self._check_api_availability()
 
-        # Get or create conversation
-        conversation_id = request.conversation_id
-        if not conversation_id:
-            conversation = chat_crud.create_conversation(
-                db, user.id, "Grocery Scan"
-            )
-            conversation_id = conversation.id
-
-        # Save user's request as a message
-        user_message = chat_crud.add_message(
-            db, conversation_id, "user", "Uploaded grocery image for scanning"
-        )
-
         try:
             headers = {
                 "Authorization": f"Bearer {self.openai_api_key}",
@@ -558,21 +545,10 @@ Guidelines:
                 items = []
                 analysis_notes = f"Error parsing AI response: {str(e)}. The image may not contain recognizable grocery items or the quality may be too poor."
 
-            # Save AI response as a message
-            response_text = f"Grocery scan completed. Found {len(items)} items."
-            if analysis_notes:
-                response_text += f"\n\nNotes: {analysis_notes}"
-
-            ai_message = chat_crud.add_message(
-                db, conversation_id, "assistant", response_text
-            )
-
             return ImageScanResponse(
                 items=items,
                 total_items=len(items),
-                analysis_notes=analysis_notes,
-                conversation_id=conversation_id,
-                message_id=ai_message.id
+                analysis_notes=analysis_notes
             )
 
         except httpx.RequestError as e:

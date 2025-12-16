@@ -91,12 +91,9 @@ class GroceryItem(BaseModel):
 
 class ImageScanRequest(BaseModel):
     image_data: str  # Base64 encoded image
-    conversation_id: Optional[int] = None
 
 
 class ImageScanResponse(BaseModel):
     items: List[GroceryItem]
     total_items: int
     analysis_notes: Optional[str] = None  # Any additional AI observations
-    conversation_id: int
-    message_id: int
