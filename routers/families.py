@@ -93,7 +93,7 @@ def remove_member(
     family_id: int,
     user_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_family_role("admin")),
+    current_user: User = Depends(get_current_user),
 ):
     membership = (
         db.query(FamilyMembership)
@@ -105,6 +105,23 @@ def remove_member(
     )
     if not membership:
         raise HTTPException(status_code=404, detail="Not a member")
+
+    # Self-leave is always allowed, no role check needed
+    if membership.user_id == current_user.id:
+        crud_remove_member(db, family_id, user_id)
+        return {"ok": True}
+
+    # Removing someone else requires admin/owner membership in this family
+    actor_membership = (
+        db.query(FamilyMembership)
+        .filter(
+            FamilyMembership.family_id == family_id,
+            FamilyMembership.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not actor_membership or actor_membership.role not in ("admin", "owner"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
 
     if membership.role == "owner":
         owner_count = (
