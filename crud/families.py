@@ -7,7 +7,7 @@ from models.user import User
 
 
 def _new_invite_code() -> str:
-    return secrets.token_urlsafe(6)
+    return f"{secrets.randbelow(1000000):06d}"
 
 
 def create_family(db: Session, display_name: str, owner: User) -> Family:
