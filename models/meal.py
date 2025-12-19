@@ -9,10 +9,11 @@ class Meal(Base):
     __tablename__ = "meals"
 
     id = Column(Integer, primary_key=True)
-    family_id = Column(Integer, ForeignKey("families.id"), nullable=True)
+    family_id = Column(Integer, ForeignKey("families.id", ondelete="CASCADE"), nullable=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     
-    family = relationship("Family", back_populates="meals", lazy="selectin")  # if you define the reverse
+    # Rely on DB-level cascade so deleting a family drops its meals
+    family = relationship("Family", back_populates="meals", passive_deletes=True, lazy="selectin")
     created_by = relationship("User", back_populates="meals_created", lazy="selectin")
 
     name = Column(String(255), nullable=False)

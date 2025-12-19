@@ -38,11 +38,13 @@ class Family(Base):
         lazy="selectin",
     )
     
-    meals = relationship(
+    # Meals inherit cascade delete at the DB level (FK ON DELETE CASCADE)
+    meals: Mapped[List["Meal"]] = relationship(
         "Meal",
         back_populates="family",
         cascade="all, delete-orphan",
         passive_deletes=True,
+        lazy="selectin",
     )
 
     # one-to-many Family -> PantryItem (back_populates on PantryItem.family)
