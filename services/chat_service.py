@@ -45,6 +45,8 @@ You can help with:
 
 Always maintain conversation continuity and remember what the user has told you."""
 
+FOOD_IMAGE_SYSTEM_PROMPT = """You may ONLY analyze food-related images. If an image or request is not about meals, groceries, cooking, ingredients, or nutrition, politely refuse and ask for a food-related image instead."""
+
 
 # Internal state message template for assistant intent persistence
 INTERNAL_STATE_TEMPLATE = """[ASSISTANT STATE - DO NOT REFERENCE DIRECTLY]
@@ -108,7 +110,9 @@ class ChatService:
         self,
         db: Session,
         user: User,
-        request: ChatRequest
+        request: ChatRequest,
+        image_data: Optional[str] = None,
+        image_mime: Optional[str] = None,
     ) -> ChatResponse:
         """
         Send a message to AI with conversation history.
@@ -124,12 +128,14 @@ class ChatService:
             user: Current user
             request: Chat request data
 
-        Returns:
-            Chat response with conversation details
+            Returns:
+                Chat response with conversation details
         """
         self._check_api_availability()
 
         try:
+            text_prompt = request.prompt  # normalized upstream
+
             # Determine if this is a new or existing conversation
             is_new_conversation = request.conversation_id is None
 
@@ -169,15 +175,20 @@ class ChatService:
                     )
 
             # Build message context for OpenAI
-            messages = await self._build_message_context(db, conversation.id, request.prompt)
+            messages = await self._build_message_context(db, conversation.id, text_prompt)
 
             # Save user message
             user_message = chat_crud.add_message(
-                db, conversation.id, "user", request.prompt
+                db, conversation.id, "user", text_prompt
             )
 
             # Get AI response (NO CACHING for chat - responses must be fresh)
-            ai_response = await self._call_openai_api_uncached(messages)
+            if image_data:
+                ai_response = await self._call_openai_api_multimodal(
+                    messages, image_data, image_mime or "image/jpeg"
+                )
+            else:
+                ai_response = await self._call_openai_api_uncached(messages)
 
             # Save AI response
             ai_message = chat_crud.add_message(
@@ -185,7 +196,7 @@ class ChatService:
             )
 
             # Update internal state based on conversation context
-            await self._update_internal_state(db, conversation.id, request.prompt, ai_response)
+            await self._update_internal_state(db, conversation.id, text_prompt, ai_response)
 
             # Invalidate conversation list cache (new message updates timestamps)
             await invalidate_cache_pattern(f"chat_conversations:*:{user.id}:*")
@@ -295,6 +306,54 @@ class ChatService:
         timeout = httpx.Timeout(60.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(self.openai_chat_url, headers=headers, json=payload)
+            response.raise_for_status()
+
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
+
+    async def _call_openai_api_multimodal(
+        self,
+        messages: List[Dict[str, Any]],
+        image_data: str,
+        image_mime: str,
+    ) -> str:
+        """
+        Send a multimodal request (text + image) to OpenAI Vision.
+        Inserts a guardrail system prompt to keep analysis food-only.
+        """
+        headers = {"Authorization": f"Bearer {self.openai_api_key}"}
+
+        history = messages[:-1] if messages else []
+        user_text = messages[-1]["content"] if messages else ""
+
+        payload = {
+            "model": self.vision_model,
+            "messages": history
+            + [
+                {"role": "system", "content": FOOD_IMAGE_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_text},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{image_mime};base64,{image_data}"
+                            },
+                        },
+                    ],
+                },
+            ],
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "stream": False,
+        }
+
+        timeout = httpx.Timeout(60.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                self.openai_chat_url, headers=headers, json=payload
+            )
             response.raise_for_status()
 
             result = response.json()

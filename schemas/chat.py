@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, root_validator
 from datetime import datetime
 from typing import List, Optional, Literal
 from enum import Enum
@@ -57,9 +57,23 @@ class ChatConversationSummary(BaseModel):
 
 # Request/Response schemas
 class ChatRequest(BaseModel):
-    prompt: str
+    # Support legacy "prompt" plus new "message" while remaining backward compatible
+    prompt: Optional[str] = None
+    message: Optional[str] = None
+    image: Optional[str] = None  # Base64-encoded image (optional)
     system: Optional[str] = None
     conversation_id: Optional[int] = None  # If None, creates new conversation
+
+    @root_validator(pre=True)
+    def _normalize_text(cls, values):
+        # Ensure we always have a text payload and normalize into prompt
+        prompt = values.get("prompt")
+        message = values.get("message")
+        text = message or prompt
+        if text is None or str(text).strip() == "":
+            raise ValueError("message is required")
+        values["prompt"] = text  # downstream logic expects prompt
+        return values
 
 
 class ChatResponse(BaseModel):

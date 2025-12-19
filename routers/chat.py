@@ -1,6 +1,8 @@
 # routers/chat.py
 import logging
 import base64
+import binascii
+import re
 from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -19,6 +21,68 @@ from services.chat_service import chat_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+ALLOWED_IMAGE_MIME = {"image/jpeg", "image/png", "image/webp"}
+IMAGE_MAX_BYTES = 5 * 1024 * 1024  # 5MB hard limit for uploads
+FOOD_KEYWORDS = [
+    "food", "meal", "recipe", "cook", "cooking", "dish", "grocery", "groceries",
+    "pantry", "ingredient", "nutrition", "calorie", "diet", "snack", "breakfast",
+    "lunch", "dinner", "dessert", "beverage", "drink"
+]
+
+
+def _detect_mime_from_bytes(data: bytes) -> str | None:
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _validate_and_extract_image(image_b64: str) -> tuple[str, str]:
+    """
+    Validate base64 image input and return (clean_base64, mime_type).
+    Rejects invalid base64, unsupported types, and oversized payloads.
+    """
+    data_part = image_b64
+    mime_type: str | None = None
+
+    if image_b64.strip().lower().startswith("data:"):
+        header, _, rest = image_b64.partition(",")
+        data_part = rest
+        match = re.match(r"data:(image/(?:jpeg|jpg|png|webp));base64", header, re.IGNORECASE)
+        if match:
+            mime = match.group(1).lower()
+            mime_type = "image/jpeg" if mime in ("image/jpg", "image/jpeg") else mime
+        else:
+            raise HTTPException(status_code=415, detail="Unsupported image type. Use jpg, jpeg, png, or webp.")
+
+    try:
+        decoded = base64.b64decode(data_part, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid base64 image encoding")
+
+    if len(decoded) > IMAGE_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Image too large. Maximum size is 5MB")
+
+    if not mime_type:
+        mime_type = _detect_mime_from_bytes(decoded)
+
+    if mime_type == "image/jpg":
+        mime_type = "image/jpeg"
+
+    if mime_type not in ALLOWED_IMAGE_MIME:
+        raise HTTPException(status_code=415, detail="Unsupported image type. Use jpg, jpeg, png, or webp.")
+
+    # return the base64 payload without data URL cruft
+    return data_part, mime_type
+
+
+def _is_food_related(text: str) -> bool:
+    text_lower = text.lower()
+    return any(keyword in text_lower for keyword in FOOD_KEYWORDS)
 
 
 # Legacy endpoint - keeping for backward compatibility
@@ -56,9 +120,32 @@ async def chat(
     _rate_limit = Depends(rate_limiter_with_user("chat"))
 ):
     """Send a chat message and get AI response with conversation history"""
-    logger.info(f"Chat request from user {current_user.id}: {len(request.prompt)} characters")
+    text = (request.message or request.prompt or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="message is required")
+
+    image_data = None
+    image_mime = None
+
+    if request.image:
+        # Validate image payload (type, base64, size)
+        image_data, image_mime = _validate_and_extract_image(request.image)
+
+        # Require text + image together; images must stay food-related
+        if not _is_food_related(text):
+            raise HTTPException(
+                status_code=400,
+                detail="Images are only allowed for food-related analysis. Please include a food-related prompt."
+            )
+
+    logger.info(
+        f"Chat request from user {current_user.id}: {len(text)} characters"
+        + (", with image" if image_data else "")
+    )
     
-    return await chat_service.send_message_with_history(db, current_user, request)
+    return await chat_service.send_message_with_history(
+        db, current_user, request, image_data=image_data, image_mime=image_mime
+    )
 
 
 @router.get("/conversations", response_model=List[ChatConversationSummary])
