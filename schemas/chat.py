@@ -18,6 +18,7 @@ class ChatMessage(ChatMessageBase):
     conversation_id: int
     created_at: datetime
     is_internal: int = 0  # 0 = visible, 1 = internal/hidden from frontend
+    image_url: Optional[str] = None  # URL of uploaded image in storage
 
     class Config:
         from_attributes = True
@@ -80,6 +81,7 @@ class ChatResponse(BaseModel):
     reply: str
     conversation_id: int
     message_id: int
+    image_url: Optional[str] = None  # URL of user's uploaded image in storage
 
 
 # Image Generation schemas

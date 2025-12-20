@@ -28,6 +28,8 @@ class ChatMessage(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     # Internal messages are sent to OpenAI but NOT returned to frontend (e.g., assistant intent state)
     is_internal = Column(Integer, default=0, nullable=False)  # 0 = visible, 1 = internal/hidden
+    # URL of uploaded image stored in Supabase Storage (nullable for text-only messages)
+    image_url = Column(Text, nullable=True)
 
     # Relationships
     conversation = relationship("ChatConversation", back_populates="messages")

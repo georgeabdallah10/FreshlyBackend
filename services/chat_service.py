@@ -18,6 +18,7 @@ from schemas.chat import (
     ImageScanRequest, ImageScanResponse, GroceryItem
 )
 from utils.cache import cached, invalidate_cache_pattern
+from services.chat_image_storage import chat_image_storage
 import crud.chat as chat_crud
 import httpx
 
@@ -177,9 +178,32 @@ class ChatService:
             # Build message context for OpenAI
             messages = await self._build_message_context(db, conversation.id, text_prompt)
 
-            # Save user message
+            # Upload image to Supabase Storage if present (must succeed before saving message)
+            uploaded_image_url = None
+            if image_data:
+                uploaded_image_url, storage_path = chat_image_storage.upload_image(
+                    image_base64=image_data,
+                    mime_type=image_mime or "image/jpeg",
+                    user_id=user.id,
+                    conversation_id=conversation.id
+                )
+                if not uploaded_image_url:
+                    logger.error(
+                        f"CHAT_IMAGE_UPLOAD_FAILED | user_id={user.id} | "
+                        f"conversation_id={conversation.id}"
+                    )
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to upload image. Please try again."
+                    )
+                logger.info(
+                    f"CHAT_IMAGE_UPLOADED | user_id={user.id} | "
+                    f"conversation_id={conversation.id} | url={uploaded_image_url}"
+                )
+
+            # Save user message (with image_url if uploaded)
             user_message = chat_crud.add_message(
-                db, conversation.id, "user", text_prompt
+                db, conversation.id, "user", text_prompt, image_url=uploaded_image_url
             )
 
             # Get AI response (NO CACHING for chat - responses must be fresh)
@@ -206,7 +230,8 @@ class ChatService:
             return ChatResponse(
                 reply=ai_response,
                 conversation_id=conversation.id,
-                message_id=ai_message.id
+                message_id=ai_message.id,
+                image_url=uploaded_image_url
             )
 
         except HTTPException:

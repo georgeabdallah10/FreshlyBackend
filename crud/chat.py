@@ -54,7 +54,8 @@ def add_message(
     conversation_id: int,
     role: str,
     content: str,
-    is_internal: int = 0
+    is_internal: int = 0,
+    image_url: Optional[str] = None
 ) -> ChatMessage:
     """Add a message to a conversation
 
@@ -64,12 +65,14 @@ def add_message(
         role: Message role ('user', 'assistant', 'system')
         content: Message content
         is_internal: 0 for visible messages, 1 for internal/hidden messages
+        image_url: URL of uploaded image in Supabase Storage (optional)
     """
     db_message = ChatMessage(
         conversation_id=conversation_id,
         role=role,
         content=content,
-        is_internal=is_internal
+        is_internal=is_internal,
+        image_url=image_url
     )
     db.add(db_message)
 

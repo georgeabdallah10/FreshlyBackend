@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE: Optional[str] = None
     SUPABASE_JWT_SECRET: Optional[str] = None  # For HS256 Supabase token validation (fallback)
     AVATARS_BUCKET: Optional[str] = "users"
+    CHAT_IMAGES_BUCKET: Optional[str] = "chat-images"
     
     # AI/OpenAI settings
     OPENAI_API_KEY: Optional[str] = None
